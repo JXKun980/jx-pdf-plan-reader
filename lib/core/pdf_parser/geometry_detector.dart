@@ -1,5 +1,7 @@
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart' show kIsWeb;
+
 import '../../models/detected_element.dart';
 import '../geometry/arc_segment.dart';
 import '../geometry/hatch_filter.dart';
@@ -40,11 +42,11 @@ class GeometryDetector {
     final data = await pdfjs.extractPageData(pdfBytes, pageNumber);
     if (data.commands.isEmpty) return DetectionResult.empty;
 
-    // PDF.js constructPath pre-applies the CTM to path coordinates,
-    // placing them in the page's MediaBox coordinate system.
+    // On web, PDF.js constructPath pre-applies the CTM to path coordinates.
+    // On native, raw content stream coordinates need the CTM applied manually.
     final extracted = PdfPathExtractor.extractFromCommands(
       data.commands,
-      preTransformed: true,
+      preTransformed: kIsWeb,
     );
     if (extracted.isEmpty) return DetectionResult.empty;
 
