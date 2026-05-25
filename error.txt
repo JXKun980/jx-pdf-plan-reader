@@ -1,0 +1,146 @@
+RethrownDartError: Error: Error: Failed to create bitmap for rendering
+assets/packages/pdfrx/assets/pdfium_worker.js 859:13                          renderPage
+assets/packages/pdfrx/assets/pdfium_worker.js 1290:38                         handleRequest
+assets/packages/pdfrx/assets/pdfium_worker.js 1392:5                          onmessage
+dart-sdk/lib/_internal/js_dev_runtime/private/ddc_runtime/errors.dart 340:10  createErrorWithStack
+dart-sdk/lib/_internal/js_dev_runtime/private/profile.dart 117:39             _throw
+dart-sdk/lib/core/errors.dart 120:5                                           throwWithStackTrace
+dart-sdk/lib/async/zone.dart 1512:11                                          callback
+dart-sdk/lib/async/schedule_microtask.dart 40:11                              _microtaskLoop
+dart-sdk/lib/async/schedule_microtask.dart 49:5                               _startMicrotaskLoop
+dart-sdk/lib/_internal/js_dev_runtime/patch/async_patch.dart 186:7            <fn>
+══╡ EXCEPTION CAUGHT BY RENDERING LIBRARY ╞═════════════════════════════════════════════════════════
+The following assertion was thrown during performLayout():
+Trailing widget consumes the entire tile width (including ListTile.contentPadding).
+Either resize the tile width so that the trailing widget plus any content padding do not exceed the
+tile width, or use a sized widget, or consider replacing ListTile with a custom widget.
+See also: https://api.flutter.dev/flutter/material/ListTile-class.html#material.ListTile.4
+
+The relevant error-causing widget was:
+  ListTile
+  ListTile:file:///C:/Users/M062582/1-Work/pdf_graph_app/lib/features/pdf_viewer/measurement_list_panel.dart:191:12
+
+When the exception was thrown, this was the stack:
+dart-sdk/lib/_internal/js_dev_runtime/private/ddc_runtime/errors.dart 307:3     throw_
+packages/flutter/src/material/list_tile.dart 1503:7                             <fn>
+packages/flutter/src/material/list_tile.dart 1513:11                            [_computeSizes]
+packages/flutter/src/material/list_tile.dart 1643:11                            performLayout
+packages/flutter/src/rendering/object.dart 2715:7                               layout
+packages/flutter/src/rendering/shifted_box.dart 243:5                           performLayout
+packages/flutter/src/rendering/object.dart 2715:7                               layout
+packages/flutter/src/rendering/shifted_box.dart 243:5                           performLayout
+packages/flutter/src/rendering/object.dart 2715:7                               layout
+packages/flutter/src/rendering/proxy_box.dart 115:10                            <fn>
+packages/flutter/src/rendering/object.dart 2715:7                               layout
+packages/flutter/src/rendering/proxy_box.dart 115:10                            <fn>
+packages/flutter/src/rendering/object.dart 2715:7                               layout
+packages/flutter/src/rendering/proxy_box.dart 115:10                            <fn>
+packages/flutter/src/rendering/object.dart 2715:7                               layout
+packages/flutter/src/rendering/proxy_box.dart 115:10                            <fn>
+packages/flutter/src/rendering/object.dart 2715:7                               layout
+packages/flutter/src/rendering/proxy_box.dart 115:10                            <fn>
+packages/flutter/src/rendering/object.dart 2715:7                               layout
+packages/flutter/src/rendering/proxy_box.dart 115:10                            <fn>
+packages/flutter/src/rendering/object.dart 2715:7                               layout
+packages/flutter/src/rendering/proxy_box.dart 115:10                            <fn>
+packages/flutter/src/rendering/object.dart 2715:7                               layout
+packages/flutter/src/rendering/sliver_list.dart 213:26                          performLayout
+packages/flutter/src/rendering/object.dart 2715:7                               layout
+packages/flutter/src/rendering/sliver_padding.dart 133:5                        performLayout
+packages/flutter/src/rendering/sliver_padding.dart 371:11                       performLayout
+packages/flutter/src/rendering/object.dart 2715:7                               layout
+packages/flutter/src/rendering/viewport.dart 608:12                             layoutChildSequence
+packages/flutter/src/rendering/viewport.dart 1576:12                            [_attemptLayout]
+packages/flutter/src/rendering/viewport.dart 1467:20                            performLayout
+packages/flutter/src/rendering/object.dart 2715:7                               layout
+packages/flutter/src/rendering/proxy_box.dart 115:10                            <fn>
+packages/flutter/src/rendering/object.dart 2715:7                               layout
+packages/flutter/src/rendering/proxy_box.dart 115:10                            <fn>
+packages/flutter/src/rendering/object.dart 2715:7                               layout
+packages/flutter/src/rendering/proxy_box.dart 115:10                            <fn>
+packages/flutter/src/rendering/object.dart 2715:7                               layout
+packages/flutter/src/rendering/proxy_box.dart 115:10                            <fn>
+packages/flutter/src/rendering/object.dart 2715:7                               layout
+packages/flutter/src/rendering/proxy_box.dart 115:10                            <fn>
+packages/flutter/src/rendering/object.dart 2715:7                               layout
+packages/flutter/src/rendering/proxy_box.dart 115:10                            <fn>
+packages/flutter/src/rendering/object.dart 2715:7                               layout
+packages/flutter/src/rendering/proxy_box.dart 115:10                            <fn>
+packages/flutter/src/rendering/object.dart 2715:7                               layout
+packages/flutter/src/rendering/proxy_box.dart 115:10                            <fn>
+packages/flutter/src/rendering/custom_paint.dart 574:11                         performLayout
+packages/flutter/src/rendering/object.dart 2715:7                               layout
+packages/flutter/src/rendering/proxy_box.dart 115:10                            <fn>
+packages/flutter/src/rendering/object.dart 2715:7                               layout
+packages/flutter/src/rendering/proxy_box.dart 115:10                            <fn>
+packages/flutter/src/rendering/object.dart 2715:7                               layout
+packages/flutter/src/rendering/proxy_box.dart 115:10                            <fn>
+packages/flutter/src/rendering/object.dart 2715:7                               layout
+packages/flutter/src/rendering/proxy_box.dart 115:10                            <fn>
+packages/flutter/src/rendering/object.dart 2715:7                               layout
+packages/flutter/src/rendering/proxy_box.dart 115:10                            <fn>
+packages/flutter/src/rendering/object.dart 2715:7                               layout
+packages/flutter/src/rendering/layout_helper.dart 62:10                         layoutChild
+packages/flutter/src/rendering/flex.dart 1202:26                                [_computeSizes]
+packages/flutter/src/rendering/flex.dart 1255:32                                performLayout
+packages/flutter/src/rendering/object.dart 2715:7                               layout
+packages/flutter/src/rendering/proxy_box.dart 293:7                             performLayout
+packages/flutter/src/rendering/object.dart 2715:7                               layout
+packages/flutter/src/rendering/shifted_box.dart 243:5                           performLayout
+packages/flutter/src/rendering/object.dart 2715:7                               layout
+packages/flutter/src/rendering/proxy_box.dart 115:10                            <fn>
+packages/flutter/src/rendering/proxy_box.dart 1483:11                           performLayout
+packages/flutter/src/rendering/object.dart 2715:7                               layout
+packages/flutter/src/rendering/proxy_box.dart 115:10                            <fn>
+packages/flutter/src/rendering/object.dart 2715:7                               layout
+packages/flutter/src/rendering/proxy_box.dart 293:7                             performLayout
+packages/flutter/src/rendering/object.dart 2715:7                               layout
+packages/flutter/src/rendering/layout_helper.dart 62:10                         layoutChild
+packages/flutter/src/rendering/flex.dart 1161:28                                [_computeSizes]
+packages/flutter/src/rendering/flex.dart 1255:32                                performLayout
+packages/flutter/src/rendering/object.dart 2715:7                               layout
+packages/flutter/src/rendering/stack.dart 549:10                                layoutPositionedChild
+packages/flutter/src/rendering/stack.dart 684:84                                performLayout
+packages/flutter/src/rendering/object.dart 2715:7                               layout
+packages/flutter/src/rendering/custom_layout.dart 180:10                        layoutChild
+packages/flutter/src/material/scaffold.dart 1118:7                              performLayout
+packages/flutter/src/rendering/custom_layout.dart 249:7                         [_callPerformLayout]
+packages/flutter/src/rendering/custom_layout.dart 419:5                         performLayout
+packages/flutter/src/rendering/object.dart 2548:7                               [_layoutWithoutResize]
+packages/flutter/src/rendering/object.dart 1112:17                              flushLayout
+packages/flutter/src/rendering/object.dart 1125:14                              flushLayout
+packages/flutter/src/rendering/binding.dart 616:5                               drawFrame
+packages/flutter/src/widgets/binding.dart 1231:13                               drawFrame
+packages/flutter/src/rendering/binding.dart 482:5                               [_handlePersistentFrameCallback]
+packages/flutter/src/scheduler/binding.dart 1442:7                              [_invokeFrameCallback]
+packages/flutter/src/scheduler/binding.dart 1355:9                              handleDrawFrame
+packages/flutter/src/scheduler/binding.dart 1208:5                              [_handleDrawFrame]
+lib/_engine/engine/platform_dispatcher.dart 1347:5                              invoke
+lib/_engine/engine/platform_dispatcher.dart 301:5                               invokeOnDrawFrame
+lib/_engine/engine/initialization.dart 190:36                                   <fn>
+dart-sdk/lib/_internal/js_dev_runtime/patch/js_allow_interop_patch.dart 224:27  _callDartFunctionFast1
+
+The following RenderObject was being processed when the exception was fired: _RenderListTile#d1ee9 relayoutBoundary=up12 NEEDS-PAINT:
+  creator: _ListTile ← IconButtonTheme ← IconTheme ← Builder ← MediaQuery ← Padding ← SafeArea ←
+    Builder ← Padding-[GlobalKey#8d016] ← Ink ← Semantics ← Listener ← ⋯
+  parentData: offset=Offset(12.0, 0.0) (can use size)
+  constraints: BoxConstraints(w=17.3, 0.0<=h<=Infinity)
+  size: Size(0.0, 374.0)
+This RenderObject had the following descendants (showing up to depth 5):
+    title: RenderFlex#94b66 relayoutBoundary=up13 OVERFLOWING
+      child 1: RenderSemanticsAnnotations#d3a86 relayoutBoundary=up14 NEEDS-PAINT
+        child: RenderExcludeSemantics#f15f8 relayoutBoundary=up15 NEEDS-PAINT
+          child: RenderConstrainedBox#d6a30 relayoutBoundary=up16 NEEDS-PAINT
+            child: RenderPositionedBox#f39db NEEDS-PAINT
+      child 2: RenderConstrainedBox#a186d relayoutBoundary=up14 NEEDS-PAINT
+      child 3: RenderParagraph#23f75 relayoutBoundary=up14 NEEDS-PAINT
+        text: TextSpan
+    subtitle: RenderParagraph#582e9 relayoutBoundary=up13
+      text: TextSpan
+    trailing: RenderSemanticsAnnotations#0e989 relayoutBoundary=up13 NEEDS-PAINT
+      child: _RenderInputPadding#3ccac relayoutBoundary=up14 NEEDS-PAINT
+        child: RenderConstrainedBox#c5b15 relayoutBoundary=up15 NEEDS-PAINT
+          child: RenderPhysicalShape#db6bd relayoutBoundary=up16 NEEDS-PAINT
+            child: RenderCustomPaint#82a66 relayoutBoundary=up17 NEEDS-PAINT
+════════════════════════════════════════════════════════════════════════════════════════════════════
+Another exception was thrown: A RenderFlex overflowed by 0.685 pixels on the right.

@@ -1,0 +1,41 @@
+name: pdf_graph_app
+description: "PDF construction graph measurement tool"
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.7.2
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  cupertino_icons: ^1.0.8
+
+  # State management
+  flutter_riverpod: ^2.6.1
+  riverpod_annotation: ^2.6.1
+
+  # PDF rendering
+  pdfrx: ^1.0.97
+
+  # File picking
+  file_picker: ^8.1.7
+
+  # Persistence
+  path_provider: ^2.1.5
+
+  # Utilities
+  vector_math: ^2.1.4
+  uuid: ^4.5.1
+  collection: ^1.19.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+  riverpod_generator: ^2.6.3
+  build_runner: ^2.4.14
+
+flutter:
+  uses-material-design: true

@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <!--
+    If you are serving your web app in a path other than the root, change the
+    href value below to reflect the base path you are serving from.
+
+    The path provided below has to start and end with a slash "/" in order for
+    it to work correctly.
+
+    For more details:
+    * https://developer.mozilla.org/en-US/docs/Web/HTML/Element/base
+
+    This is a placeholder for base href that will be replaced by the value of
+    the `--base-href` argument provided to `flutter build`.
+  -->
+  <base href="$FLUTTER_BASE_HREF">
+
+  <meta charset="UTF-8">
+  <meta content="IE=Edge" http-equiv="X-UA-Compatible">
+  <meta name="description" content="A new Flutter project.">
+
+  <!-- iOS meta tags & icons -->
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="apple-mobile-web-app-title" content="pdf_graph_app">
+  <link rel="apple-touch-icon" href="icons/Icon-192.png">
+
+  <!-- Favicon -->
+  <link rel="icon" type="image/png" href="favicon.png"/>
+
+  <title>pdf_graph_app</title>
+  <link rel="manifest" href="manifest.json">
+</head>
+<body>
+  <script>
+    // Prevent browser Ctrl+wheel zoom so Flutter can handle it.
+    window.addEventListener('wheel', function(e) {
+      if (e.ctrlKey) { e.preventDefault(); }
+    }, { passive: false });
+  </script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.4.168/pdf.min.mjs" type="module"></script>
+  <script type="module">
+    import * as pdfjsLib from 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.4.168/pdf.min.mjs';
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.4.168/pdf.worker.min.mjs';
+
+    // Extract path operators from a PDF page using PDF.js.
+    // Returns { ops: [{op, args}], view: [x0, y0, x1, y1] }.
+    //
+    // PDF.js constructPath pre-applies the current CTM to all coordinates,
+    // so coordinates inside constructPath are in the MediaBox space.
+    window.extractPdfPageOps = async function(pdfBytesArrayBuffer, pageNumber) {
+      const loadingTask = pdfjsLib.getDocument({data: new Uint8Array(pdfBytesArrayBuffer)});
+      const doc = await loadingTask.promise;
+      const page = await doc.getPage(pageNumber);
+      const opList = await page.getOperatorList();
+      const OPS = pdfjsLib.OPS;
+      const result = [];
+
+      function pushOp(op, args) { result.push({op: op, args: args}); }
+
+      for (let i = 0; i < opList.fnArray.length; i++) {
+        const fn = opList.fnArray[i];
+        const a = opList.argsArray[i];
+
+        if (fn === OPS.constructPath) {
+          // Batched path ops: a[0]=subOps, a[1]=subArgs, a[2]=minMax
+          const subOps = a[0], subArgs = a[1];
+          let idx = 0;
+          for (const sop of subOps) {
+            if (sop === OPS.moveTo) {
+              pushOp('m', [subArgs[idx], subArgs[idx+1]]); idx += 2;
+            } else if (sop === OPS.lineTo) {
+              pushOp('l', [subArgs[idx], subArgs[idx+1]]); idx += 2;
+            } else if (sop === OPS.curveTo) {
+              pushOp('c', [subArgs[idx], subArgs[idx+1], subArgs[idx+2], subArgs[idx+3], subArgs[idx+4], subArgs[idx+5]]); idx += 6;
+            } else if (sop === OPS.curveTo2) {
+              pushOp('v', [subArgs[idx], subArgs[idx+1], subArgs[idx+2], subArgs[idx+3]]); idx += 4;
+            } else if (sop === OPS.curveTo3) {
+              pushOp('y', [subArgs[idx], subArgs[idx+1], subArgs[idx+2], subArgs[idx+3]]); idx += 4;
+            } else if (sop === OPS.rectangle) {
+              pushOp('re', [subArgs[idx], subArgs[idx+1], subArgs[idx+2], subArgs[idx+3]]); idx += 4;
+            } else if (sop === OPS.closePath) {
+              pushOp('h', []);
+            }
+          }
+        } else if (fn === OPS.save) {
+          pushOp('q', []);
+        } else if (fn === OPS.restore) {
+          pushOp('Q', []);
+        } else if (fn === OPS.transform) {
+          pushOp('cm', Array.from(a));
+        } else if (fn === OPS.moveTo) {
+          pushOp('m', Array.from(a));
+        } else if (fn === OPS.lineTo) {
+          pushOp('l', Array.from(a));
+        } else if (fn === OPS.curveTo) {
+          pushOp('c', Array.from(a));
+        } else if (fn === OPS.curveTo2) {
+          pushOp('v', Array.from(a));
+        } else if (fn === OPS.curveTo3) {
+          pushOp('y', Array.from(a));
+        } else if (fn === OPS.closePath) {
+          pushOp('h', []);
+        } else if (fn === OPS.rectangle) {
+          pushOp('re', Array.from(a));
+        // Graphics state: line width and dash
+        } else if (fn === OPS.setLineWidth) {
+          pushOp('w', Array.from(a));
+        } else if (fn === OPS.setDash) {
+          // a[0] = dash array, a[1] = dash phase
+          const dashArray = a[0] || [];
+          pushOp('d', [...dashArray, a[1] || 0]);
+        // Stroke color operators
+        } else if (fn === OPS.setStrokeRGBColor) {
+          pushOp('RG', Array.from(a));
+        } else if (fn === OPS.setStrokeGray) {
+          pushOp('G', Array.from(a));
+        } else if (fn === OPS.setStrokeCMYKColor) {
+          pushOp('K', Array.from(a));
+        // Fill color operators
+        } else if (fn === OPS.setFillRGBColor) {
+          pushOp('rg', Array.from(a));
+        } else if (fn === OPS.setFillGray) {
+          pushOp('fg', Array.from(a));
+        } else if (fn === OPS.setFillCMYKColor) {
+          pushOp('fk', Array.from(a));
+        }
+      }
+
+      await doc.destroy();
+      return {
+        ops: result,
+        view: Array.from(page.view),  // [x0, y0, x1, y1] MediaBox/CropBox
+      };
+    };
+  </script>
+  <script src="flutter_bootstrap.js" async></script>
+</body>
+</html>
