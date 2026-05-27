@@ -133,9 +133,12 @@ class _PdfParser {
   // xref: objNum -> file offset.
   final Map<int, int> _xref = {};
 
+  // /Root reference captured from any trailer dictionary we encounter.
+  _PdfRef? _rootRef;
+
   PageExtractResult extractPage(int pageNumber) {
     _buildXref();
-    final root = _resolveRef(_findTrailerRoot());
+    final root = _resolveRef(_rootRef ?? _findTrailerRoot());
     if (root is! _PdfDict) {
       return PageExtractResult(const [], [0, 0, 0, 0]);
     }
@@ -236,6 +239,11 @@ class _PdfParser {
       _skipWhitespace();
       final trailerDict = _readObject();
       if (trailerDict is _PdfDict) {
+        // Capture /Root if present and we haven't seen one yet.
+        final rootObj = trailerDict['Root'];
+        if (rootObj is _PdfRef) {
+          _rootRef ??= rootObj;
+        }
         final prev = trailerDict.getInt('Prev');
         if (prev != null) {
           _parseXrefAt(prev);
@@ -289,6 +297,12 @@ class _PdfParser {
     final prev = dict.getInt('Prev');
     if (prev != null) {
       _parseXrefAt(prev);
+    }
+
+    // Capture /Root if present (cross-reference streams carry trailer metadata).
+    final rootObj = dict['Root'];
+    if (rootObj is _PdfRef) {
+      _rootRef ??= rootObj;
     }
   }
 

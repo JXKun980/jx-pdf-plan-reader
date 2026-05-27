@@ -152,6 +152,58 @@ Uint8List buildTwoPagePdf(
   return Uint8List.fromList(utf8.encode(buf.toString()));
 }
 
+/// Build a linearized-style PDF where:
+/// - The first xref section + trailer have /Root and /Prev pointing back to a
+///   main xref.
+/// - The final trailer (the one startxref points to) has NO /Root.
+///
+/// This mimics real linearized PDFs from CAD software where the parser must
+/// walk the /Prev chain to find /Root rather than scanning the tail for it.
+Uint8List buildLinearizedStylePdf(String contentStream) {
+  final c = utf8.encode(contentStream);
+  final buf = StringBuffer();
+  buf.write('%PDF-1.6\n');
+
+  // --- "Main" objects (in real linearized PDFs these come first as a hint,
+  // here we just lay out all objects normally and use two xref sections.) ---
+
+  final o1 = buf.length;
+  buf.write('1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n');
+
+  final o2 = buf.length;
+  buf.write('2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n');
+
+  final o3 = buf.length;
+  buf.write(
+      '3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R >>\nendobj\n');
+
+  final o4 = buf.length;
+  buf.write('4 0 obj\n<< /Length ${c.length} >>\nstream\n');
+  buf.write(contentStream);
+  buf.write('\nendstream\nendobj\n');
+
+  // First (main) xref section with the trailer that contains /Root.
+  final mainXrefOffset = buf.length;
+  buf.write('xref\n0 5\n');
+  buf.write('0000000000 65535 f \n');
+  buf.write('${o1.toString().padLeft(10, '0')} 00000 n \n');
+  buf.write('${o2.toString().padLeft(10, '0')} 00000 n \n');
+  buf.write('${o3.toString().padLeft(10, '0')} 00000 n \n');
+  buf.write('${o4.toString().padLeft(10, '0')} 00000 n \n');
+  buf.write('trailer\n<< /Size 5 /Root 1 0 R >>\n');
+  buf.write('startxref\n$mainXrefOffset\n%%EOF\n');
+
+  // Final (incremental update) xref section: no new objects, but trailer
+  // has NO /Root and /Prev points back to the main xref.
+  final finalXrefOffset = buf.length;
+  buf.write('xref\n0 1\n');
+  buf.write('0000000000 65535 f \n');
+  buf.write('trailer\n<< /Size 5 /Prev $mainXrefOffset >>\n');
+  buf.write('startxref\n$finalXrefOffset\n%%EOF\n');
+
+  return Uint8List.fromList(utf8.encode(buf.toString()));
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -460,6 +512,39 @@ void main() {
           .firstWhere((c) => c.type == PathCommandType.moveTo);
       expect(moveP2.args[0], closeTo(100, 0.001));
       expect(moveP2.args[1], closeTo(200, 0.001));
+    });
+  });
+
+  group('Native PDF extractor — linearized / incremental update PDFs', () {
+    // Regression test for a real-world bug: linearized PDFs (and PDFs with
+    // incremental updates) often have a final trailer dict with no /Root.
+    // The parser must walk the /Prev chain and capture /Root from any
+    // trailer it encounters, NOT just scan the file tail for it.
+    test('extracts /Root from /Prev-chain trailer (not the final one)',
+        () async {
+      final pdf = buildLinearizedStylePdf('100 200 m 300 400 l');
+      final result = await extractor.extractPageData(pdf, 1);
+
+      expect(result.commands, isNotEmpty,
+          reason: 'parser must follow /Prev chain to find /Root');
+
+      final moveCmd = result.commands
+          .firstWhere((c) => c.type == PathCommandType.moveTo);
+      expect(moveCmd.args[0], closeTo(100, 0.001));
+      expect(moveCmd.args[1], closeTo(200, 0.001));
+
+      final lineCmd = result.commands
+          .firstWhere((c) => c.type == PathCommandType.lineTo);
+      expect(lineCmd.args[0], closeTo(300, 0.001));
+      expect(lineCmd.args[1], closeTo(400, 0.001));
+    });
+
+    test('linearized PDF reports correct MediaBox', () async {
+      final pdf = buildLinearizedStylePdf('0 0 m');
+      final result = await extractor.extractPageData(pdf, 1);
+
+      expect(result.pageWidth, closeTo(612, 0.001));
+      expect(result.pageHeight, closeTo(792, 0.001));
     });
   });
 
