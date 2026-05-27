@@ -1,0 +1,8 @@
+- Real time visuallisation of line drawing
+- Right click to cancel a preview and start again
+- Error when hovering over tool item
+- Size floating tip needs when overlap should highlight the last one that's touched by mouse
+- Ability to chain lines and arcs
+- When not drawing, right click cancels tool and moves back to pointer tool
+- Clicking a line/point do not darken screen, it should keep the line highlighted until user clicks empty space or another line, it should have a floating widget showing the actions to perform: delete, or calibrate if not calibrated before
+- Opening a new page, the page always moves from bottom right to top left then center, remove this animation
