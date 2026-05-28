@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../core/calibration/scale.dart';
@@ -24,7 +26,17 @@ class CanvasOverlay extends StatelessWidget {
   final Point2D? previewCircleCenter;
   final double? previewCircleRadius;
   final Point2D? previewRectEnd;
+  final Point2D? previewLineEnd;
   final ArcSegment? previewArc;
+  /// Control point of a Bezier preview curve (Free arc-tool mode).
+  final Point2D? previewBezierControl;
+  /// Apex point of the Bezier preview (= cursor in Free mode), shown as a
+  /// small ring so the user can see exactly what the curve is pinned to.
+  final Point2D? previewBezierApex;
+  /// When true, draw a dashed line from the crosshair to
+  /// [pendingSecondPoint] — used by the circular Arc mode of the arc tool
+  /// to indicate that the cursor controls the arc's third point.
+  final bool showArcBulgeGuide;
 
   const CanvasOverlay({
     super.key,
@@ -44,7 +56,11 @@ class CanvasOverlay extends StatelessWidget {
     this.previewCircleCenter,
     this.previewCircleRadius,
     this.previewRectEnd,
+    this.previewLineEnd,
     this.previewArc,
+    this.previewBezierControl,
+    this.previewBezierApex,
+    this.showArcBulgeGuide = false,
   });
 
   @override
@@ -70,7 +86,11 @@ class CanvasOverlay extends StatelessWidget {
             previewCircleCenter: previewCircleCenter,
             previewCircleRadius: previewCircleRadius,
             previewRectEnd: previewRectEnd,
+            previewLineEnd: previewLineEnd,
             previewArc: previewArc,
+            previewBezierControl: previewBezierControl,
+            previewBezierApex: previewBezierApex,
+            showArcBulgeGuide: showArcBulgeGuide,
           ),
           size: Size(constraints.maxWidth, constraints.maxHeight),
         );
@@ -97,7 +117,11 @@ class _OverlayPainter extends CustomPainter {
   final Point2D? previewCircleCenter;
   final double? previewCircleRadius;
   final Point2D? previewRectEnd;
+  final Point2D? previewLineEnd;
   final ArcSegment? previewArc;
+  final Point2D? previewBezierControl;
+  final Point2D? previewBezierApex;
+  final bool showArcBulgeGuide;
 
   _OverlayPainter({
     required this.detectedElements,
@@ -117,7 +141,11 @@ class _OverlayPainter extends CustomPainter {
     this.previewCircleCenter,
     this.previewCircleRadius,
     this.previewRectEnd,
+    this.previewLineEnd,
     this.previewArc,
+    this.previewBezierControl,
+    this.previewBezierApex,
+    this.showArcBulgeGuide = false,
   });
 
   /// Convert PDF coordinates to widget-local (screen) coordinates.
@@ -134,7 +162,12 @@ class _OverlayPainter extends CustomPainter {
     _drawRectMeasurements(canvas);
     _drawPreviewRect(canvas);
     _drawPreviewArc(canvas);
+    _drawPreviewBezier(canvas);
+    _drawPreviewLine(canvas);
     _drawPendingPoint(canvas);
+    // Selected measurement is drawn on top of all other measurements/labels
+    // so the user's current focus is never obscured.
+    _drawSelectedMeasurement(canvas);
     _drawSnapIndicator(canvas);
     _drawCrosshair(canvas, size);
   }
@@ -162,6 +195,38 @@ class _OverlayPainter extends CustomPainter {
     final ry = arc.radius * scaleY;
     final rect = Rect.fromCenter(center: center, width: rx * 2, height: ry * 2);
     canvas.drawArc(rect, -arc.startAngle, -arc.sweepAngle, false, paint);
+  }
+
+  /// Draws an arc-type measurement, choosing the correct underlying shape:
+  /// a quadratic Bezier when [Measurement.bezierControl] is set, otherwise
+  /// a circular arc from [Measurement.arcSegment]. Falls back to a chord
+  /// line if neither is present.
+  void _drawArcOrBezierMeasurement(
+    Canvas canvas,
+    Measurement m,
+    Paint paint,
+  ) {
+    if (m.bezierControl != null) {
+      final path = Path()
+        ..moveTo(_toLocal(m.startPoint).dx, _toLocal(m.startPoint).dy)
+        ..quadraticBezierTo(
+          _toLocal(m.bezierControl!).dx,
+          _toLocal(m.bezierControl!).dy,
+          _toLocal(m.endPoint).dx,
+          _toLocal(m.endPoint).dy,
+        );
+      canvas.drawPath(path, paint);
+      return;
+    }
+    if (m.arcSegment != null) {
+      _drawArc(canvas, m.arcSegment!, paint);
+      return;
+    }
+    canvas.drawLine(
+      _toLocal(m.startPoint),
+      _toLocal(m.endPoint),
+      paint,
+    );
   }
 
   void _drawJoints(Canvas canvas) {
@@ -207,11 +272,6 @@ class _OverlayPainter extends CustomPainter {
       ..strokeWidth = 2.0
       ..style = PaintingStyle.stroke;
 
-    final selectedPaint = Paint()
-      ..color = Colors.orange
-      ..strokeWidth = 3.0
-      ..style = PaintingStyle.stroke;
-
     final hoveredPaint = Paint()
       ..color = Colors.cyan
       ..strokeWidth = 2.5
@@ -224,20 +284,19 @@ class _OverlayPainter extends CustomPainter {
         continue;
       }
 
-      final isSelected = m.id == selectedMeasurementId;
+      // The selected measurement is drawn last (on top of everything) by
+      // _drawSelectedMeasurement so its label is never covered.
+      if (m.id == selectedMeasurementId) continue;
+
       final isHovered = m.id == hoveredMeasurementId;
 
-      // Auto-detected measurements are invisible unless selected or hovered.
-      if (m.autoDetected && !isSelected && !isHovered) continue;
+      // Auto-detected measurements are invisible unless hovered.
+      if (m.autoDetected && !isHovered) continue;
 
-      final paint = isSelected
-          ? selectedPaint
-          : isHovered
-              ? hoveredPaint
-              : manualPaint;
+      final paint = isHovered ? hoveredPaint : manualPaint;
 
-      if (m.type == MeasurementType.arc && m.arcSegment != null) {
-        _drawArc(canvas, m.arcSegment!, paint);
+      if (m.type == MeasurementType.arc) {
+        _drawArcOrBezierMeasurement(canvas, m, paint);
       } else {
         canvas.drawLine(
           _toLocal(m.startPoint),
@@ -267,14 +326,17 @@ class _OverlayPainter extends CustomPainter {
     return '${m.pixelLength.toStringAsFixed(1)} px';
   }
 
-  void _drawLabel(Canvas canvas, Offset position, String text) {
+  void _drawLabel(Canvas canvas, Offset position, String text,
+      {bool highlighted = false}) {
+    final textColor =
+        highlighted ? const Color(0xFF8B3D00) : const Color(0xFF333333);
     final textPainter = TextPainter(
       text: TextSpan(
         text: text,
-        style: const TextStyle(
-          color: Color(0xFF333333),
+        style: TextStyle(
+          color: textColor,
           fontSize: 11,
-          fontWeight: FontWeight.w600,
+          fontWeight: highlighted ? FontWeight.w700 : FontWeight.w600,
         ),
       ),
       textDirection: TextDirection.ltr,
@@ -290,16 +352,19 @@ class _OverlayPainter extends CustomPainter {
       const Radius.circular(4),
     );
 
-    canvas.drawRRect(
-      bgRect,
-      Paint()..color = Colors.white.withValues(alpha: 0.9),
-    );
+    final bgColor = highlighted
+        ? Colors.orange.shade100.withValues(alpha: 0.95)
+        : Colors.white.withValues(alpha: 0.9);
+    final borderColor = highlighted ? Colors.orange.shade700 : Colors.grey.shade400;
+    final borderWidth = highlighted ? 1.5 : 0.5;
+
+    canvas.drawRRect(bgRect, Paint()..color = bgColor);
     canvas.drawRRect(
       bgRect,
       Paint()
-        ..color = Colors.grey.shade400
+        ..color = borderColor
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 0.5,
+        ..strokeWidth = borderWidth,
     );
 
     textPainter.paint(
@@ -358,11 +423,6 @@ class _OverlayPainter extends CustomPainter {
       ..strokeWidth = 2.0
       ..style = PaintingStyle.stroke;
 
-    final selectedPaint = Paint()
-      ..color = Colors.orange
-      ..strokeWidth = 3.0
-      ..style = PaintingStyle.stroke;
-
     final hoveredPaint = Paint()
       ..color = Colors.cyan
       ..strokeWidth = 2.5
@@ -377,14 +437,11 @@ class _OverlayPainter extends CustomPainter {
       if (m.type != MeasurementType.circle) continue;
       if (m.autoDetected) continue;
 
-      final isSelected = m.id == selectedMeasurementId;
-      final isHovered = m.id == hoveredMeasurementId;
+      // Selected is drawn last by _drawSelectedMeasurement.
+      if (m.id == selectedMeasurementId) continue;
 
-      final paint = isSelected
-          ? selectedPaint
-          : isHovered
-              ? hoveredPaint
-              : circlePaint;
+      final isHovered = m.id == hoveredMeasurementId;
+      final paint = isHovered ? hoveredPaint : circlePaint;
 
       final center = _toLocal(m.startPoint);
       final radius = m.pixelLength; // pixelLength stores the radius
@@ -477,11 +534,6 @@ class _OverlayPainter extends CustomPainter {
       ..strokeWidth = 2.0
       ..style = PaintingStyle.stroke;
 
-    final selectedPaint = Paint()
-      ..color = Colors.orange
-      ..strokeWidth = 3.0
-      ..style = PaintingStyle.stroke;
-
     final hoveredPaint = Paint()
       ..color = Colors.cyan
       ..strokeWidth = 2.5
@@ -491,14 +543,11 @@ class _OverlayPainter extends CustomPainter {
       if (m.type != MeasurementType.rectangle) continue;
       if (m.autoDetected) continue;
 
-      final isSelected = m.id == selectedMeasurementId;
-      final isHovered = m.id == hoveredMeasurementId;
+      // Selected is drawn last by _drawSelectedMeasurement.
+      if (m.id == selectedMeasurementId) continue;
 
-      final paint = isSelected
-          ? selectedPaint
-          : isHovered
-              ? hoveredPaint
-              : rectPaint;
+      final isHovered = m.id == hoveredMeasurementId;
+      final paint = isHovered ? hoveredPaint : rectPaint;
 
       _drawRectWithLabels(canvas, m.startPoint, m.endPoint, paint);
     }
@@ -519,8 +568,9 @@ class _OverlayPainter extends CustomPainter {
     Canvas canvas,
     Point2D corner1,
     Point2D corner2,
-    Paint paint,
-  ) {
+    Paint paint, {
+    bool highlightedLabel = false,
+  }) {
     final tl = _toLocal(Point2D(
       corner1.x < corner2.x ? corner1.x : corner2.x,
       corner1.y > corner2.y ? corner1.y : corner2.y,
@@ -543,25 +593,239 @@ class _OverlayPainter extends CustomPainter {
       canvas,
       Offset(rect.center.dx, rect.bottom + 14),
       wLabel,
+      highlighted: highlightedLabel,
     );
     // Vertical label — right edge center
     _drawLabel(
       canvas,
       Offset(rect.right + 24, rect.center.dy),
       hLabel,
+      highlighted: highlightedLabel,
     );
   }
 
+  /// Draw the currently-selected measurement on top of everything else, with
+  /// a highlighted (orange) stroke and a highlighted label so it can't be
+  /// covered by other overlapping measurement labels.
+  void _drawSelectedMeasurement(Canvas canvas) {
+    if (selectedMeasurementId == null) return;
+
+    Measurement? m;
+    for (final candidate in measurements) {
+      if (candidate.id == selectedMeasurementId) {
+        m = candidate;
+        break;
+      }
+    }
+    if (m == null) return;
+
+    final paint = Paint()
+      ..color = Colors.orange
+      ..strokeWidth = 3.0
+      ..style = PaintingStyle.stroke;
+
+    switch (m.type) {
+      case MeasurementType.linear:
+        canvas.drawLine(
+          _toLocal(m.startPoint),
+          _toLocal(m.endPoint),
+          paint,
+        );
+        final label = _formatMeasurement(m);
+        final mid = m.startPoint.midpointTo(m.endPoint);
+        _drawLabel(canvas, _toLocal(mid), label, highlighted: true);
+
+      case MeasurementType.arc:
+        _drawArcOrBezierMeasurement(canvas, m, paint);
+        final label = _formatMeasurement(m);
+        final mid = m.startPoint.midpointTo(m.endPoint);
+        _drawLabel(canvas, _toLocal(mid), label, highlighted: true);
+
+      case MeasurementType.circle:
+        final center = _toLocal(m.startPoint);
+        final radius = m.pixelLength;
+        final rx = radius * scaleX;
+        final ry = radius * scaleY;
+        canvas.drawOval(
+          Rect.fromCenter(center: center, width: rx * 2, height: ry * 2),
+          paint,
+        );
+
+        // Radius line
+        final radiusLinePaint = Paint()
+          ..color = Colors.orange.withValues(alpha: 0.7)
+          ..strokeWidth = 1.0
+          ..style = PaintingStyle.stroke;
+        final edgePoint =
+            _toLocal(Point2D(m.startPoint.x + radius, m.startPoint.y));
+        canvas.drawLine(center, edgePoint, radiusLinePaint);
+        canvas.drawCircle(center, 3.0, Paint()..color = Colors.orange);
+
+        final labelPos = Offset(
+          (center.dx + edgePoint.dx) / 2,
+          (center.dy + edgePoint.dy) / 2 - 12,
+        );
+        final label = 'R=${_formatMeasurement(m)}';
+        _drawLabel(canvas, labelPos, label, highlighted: true);
+
+      case MeasurementType.rectangle:
+        _drawRectWithLabels(
+          canvas,
+          m.startPoint,
+          m.endPoint,
+          paint,
+          highlightedLabel: true,
+        );
+    }
+  }
+
   void _drawPreviewArc(Canvas canvas) {
-    if (previewArc == null) return;
-    if (!previewArc!.radius.isFinite || previewArc!.radius <= 0) return;
+    // Only active when both arc endpoints are set (i.e. the arc tool's
+    // "pick midpoint" phase).
+    if (pendingPoint == null || pendingSecondPoint == null) return;
 
     final paint = Paint()
       ..color = Colors.red.withValues(alpha: 0.5)
       ..strokeWidth = 1.5
       ..style = PaintingStyle.stroke;
 
-    _drawArc(canvas, previewArc!, paint);
+    if (previewArc != null &&
+        previewArc!.radius.isFinite &&
+        previewArc!.radius > 0) {
+      _drawArc(canvas, previewArc!, paint);
+    } else {
+      // Fallback: cursor coincides with an endpoint or all three points are
+      // collinear — show the chord between the endpoints so the user still
+      // sees a continuous preview between clicks.
+      canvas.drawLine(
+        _toLocal(pendingPoint!),
+        _toLocal(pendingSecondPoint!),
+        paint,
+      );
+    }
+
+    // Arc-mode bulge guide: dashed line from the cursor to the second
+    // endpoint, hinting that the cursor controls the third arc point.
+    if (showArcBulgeGuide && crosshairPosition != null) {
+      final guidePaint = Paint()
+        ..color = Colors.red.withValues(alpha: 0.6)
+        ..strokeWidth = 1.0
+        ..style = PaintingStyle.stroke;
+      _drawDashedLine(
+        canvas,
+        _toLocal(crosshairPosition!),
+        _toLocal(pendingSecondPoint!),
+        guidePaint,
+        dashLength: 6,
+        gapLength: 4,
+      );
+    }
+  }
+
+  /// Free-mode (Bezier) preview: draws the quadratic Bezier curve through
+  /// pendingPoint → previewBezierControl → pendingSecondPoint, plus a
+  /// small ring at the apex (the cursor / curve peak at t=0.5).
+  void _drawPreviewBezier(Canvas canvas) {
+    if (pendingPoint == null || pendingSecondPoint == null) return;
+    if (previewBezierControl == null) return;
+
+    final curvePaint = Paint()
+      ..color = Colors.red.withValues(alpha: 0.5)
+      ..strokeWidth = 1.5
+      ..style = PaintingStyle.stroke;
+
+    final start = _toLocal(pendingPoint!);
+    final end = _toLocal(pendingSecondPoint!);
+    final control = _toLocal(previewBezierControl!);
+
+    final path = Path()
+      ..moveTo(start.dx, start.dy)
+      ..quadraticBezierTo(control.dx, control.dy, end.dx, end.dy);
+    canvas.drawPath(path, curvePaint);
+
+    // Apex indicator at the cursor position (= curve peak).
+    if (previewBezierApex != null) {
+      final apex = _toLocal(previewBezierApex!);
+      canvas.drawCircle(
+        apex,
+        4.5,
+        Paint()
+          ..color = Colors.white.withValues(alpha: 0.9)
+          ..style = PaintingStyle.fill,
+      );
+      canvas.drawCircle(
+        apex,
+        4.5,
+        Paint()
+          ..color = Colors.red.withValues(alpha: 0.9)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.5,
+      );
+    }
+  }
+
+  /// Draws a dashed straight line between two screen-space points.
+  void _drawDashedLine(
+    Canvas canvas,
+    Offset from,
+    Offset to,
+    Paint paint, {
+    double dashLength = 6,
+    double gapLength = 4,
+  }) {
+    final dx = to.dx - from.dx;
+    final dy = to.dy - from.dy;
+    final distance = math.sqrt(dx * dx + dy * dy);
+    if (distance == 0) return;
+    final stepX = dx / distance;
+    final stepY = dy / distance;
+    double drawn = 0;
+    while (drawn < distance) {
+      final segEnd = math.min(drawn + dashLength, distance);
+      canvas.drawLine(
+        Offset(from.dx + stepX * drawn, from.dy + stepY * drawn),
+        Offset(from.dx + stepX * segEnd, from.dy + stepY * segEnd),
+        paint,
+      );
+      drawn = segEnd + gapLength;
+    }
+  }
+
+  void _drawPreviewLine(Canvas canvas) {
+    if (pendingPoint == null || previewLineEnd == null) return;
+
+    final paint = Paint()
+      ..color = Colors.red.withValues(alpha: 0.5)
+      ..strokeWidth = 1.5
+      ..style = PaintingStyle.stroke;
+
+    canvas.drawLine(
+      _toLocal(pendingPoint!),
+      _toLocal(previewLineEnd!),
+      paint,
+    );
+
+    // Length label at the midpoint.
+    final pixelLength = pendingPoint!.distanceTo(previewLineEnd!);
+    if (pixelLength < 0.5) return;
+
+    final label = calibration != null
+        ? _formatCalibratedLength(pixelLength)
+        : '${pixelLength.toStringAsFixed(1)} px';
+
+    final mid = pendingPoint!.midpointTo(previewLineEnd!);
+    _drawLabel(canvas, _toLocal(mid), label);
+  }
+
+  String _formatCalibratedLength(double pixelLength) {
+    final mm = calibration!.toMm(pixelLength);
+    if (mm >= 1000) {
+      return '${(mm / 1000).toStringAsFixed(2)} m';
+    } else if (mm >= 10) {
+      return '${mm.toStringAsFixed(1)} mm';
+    } else {
+      return '${mm.toStringAsFixed(2)} mm';
+    }
   }
 
   void _drawCrosshair(Canvas canvas, Size size) {
@@ -597,5 +861,9 @@ class _OverlayPainter extends CustomPainter {
       previewCircleCenter != oldDelegate.previewCircleCenter ||
       previewCircleRadius != oldDelegate.previewCircleRadius ||
       previewRectEnd != oldDelegate.previewRectEnd ||
-      previewArc != oldDelegate.previewArc;
+      previewLineEnd != oldDelegate.previewLineEnd ||
+      previewArc != oldDelegate.previewArc ||
+      previewBezierControl != oldDelegate.previewBezierControl ||
+      previewBezierApex != oldDelegate.previewBezierApex ||
+      showArcBulgeGuide != oldDelegate.showArcBulgeGuide;
 }
