@@ -56,6 +56,10 @@ class _PdfViewerScreenState extends ConsumerState<PdfViewerScreen> {
   bool _detecting = false;
   bool _geometryVisible = true;
   String? _selectedMeasurementId;
+  // Mobile touch-and-drag draws: records the last PDF position reported by
+  // the active pan gesture so we can re-use it at pan-end without relying
+  // on platform-specific DragEndDetails.localPosition support.
+  Point2D? _lastDragPdfPoint;
 
   @override
   void initState() {
@@ -202,8 +206,10 @@ class _PdfViewerScreenState extends ConsumerState<PdfViewerScreen> {
     final hasFirst = interaction.pendingFirstPoint != null;
     final hasSecond = interaction.pendingSecondPoint != null;
 
-    // Verbs / hints adapt to the input style so phone/tablet users see
-    // gestures they can actually perform.
+    // Verbs / hints adapt to the input style. On desktop/web everything is
+    // click + right-click. On phones/tablets we recommend touch-and-drag
+    // (touch sets first point, drag previews, release commits) and use
+    // long-press as the cancel gesture.
     final desktop = _isDesktopOrWeb();
     final tap = desktop ? 'Click' : 'Tap';
     final cancelStop = desktop ? 'Right-click to stop.' : 'Long-press to stop.';
@@ -217,12 +223,16 @@ class _PdfViewerScreenState extends ConsumerState<PdfViewerScreen> {
         return null;
       case ToolMode.line:
         if (!hasFirst) {
-          return '$tap anywhere to mark the starting point.';
+          return desktop
+              ? 'Click anywhere to mark the starting point.'
+              : 'Touch and drag to draw a line. Long-press to cancel.';
         }
         return '$tap to draw a line. $cancelStop';
       case ToolMode.arc:
         if (!hasFirst) {
-          return '$tap anywhere to mark the arc start point.';
+          return desktop
+              ? 'Click anywhere to mark the arc start point.'
+              : 'Touch and drag to set the arc start and end. Long-press to cancel.';
         }
         if (!hasSecond) {
           return '$tap to set the arc end point. $cancelCancel';
@@ -232,26 +242,32 @@ class _PdfViewerScreenState extends ConsumerState<PdfViewerScreen> {
         // cursor IS the curve's peak) and, on desktop/web only, mention
         // the Shift override.
         final mode = interaction.arcSymmetric ? 'Arc' : 'Free';
-        final base = '$tap to set the curve apex ($mode). $cancelBack';
         if (desktop) {
+          final base = 'Click to set the curve apex ($mode). $cancelBack';
           return interaction.arcSymmetric
               ? '$base Hold Shift for Free.'
               : '$base Hold Shift for Arc.';
         }
-        return base;
+        return 'Touch and drag to set the curve apex ($mode). $cancelBack';
       case ToolMode.circle:
         if (!hasFirst) {
-          return '$tap anywhere to set the circle center.';
+          return desktop
+              ? 'Click anywhere to set the circle center.'
+              : 'Touch and drag from center to edge. Long-press to cancel.';
         }
         return '$tap to set the radius. $cancelCancel';
       case ToolMode.rectangle:
         if (!hasFirst) {
-          return '$tap anywhere to set the first corner.';
+          return desktop
+              ? 'Click anywhere to set the first corner.'
+              : 'Touch and drag to draw a rectangle. Long-press to cancel.';
         }
         return '$tap to set the opposite corner. $cancelCancel';
       case ToolMode.calibrate:
         if (!hasFirst) {
-          return '$tap the first point of a known-length feature.';
+          return desktop
+              ? 'Click the first point of a known-length feature.'
+              : 'Touch and drag along a known-length feature. Long-press to cancel.';
         }
         return '$tap the second point to set the calibration. $cancelCancel';
     }
@@ -377,6 +393,72 @@ class _PdfViewerScreenState extends ConsumerState<PdfViewerScreen> {
 
     // Nothing pending → exit the tool, return to pointer/select mode.
     notifier.setTool(ToolMode.select);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Mobile touch-and-drag drawing
+  //
+  // On phones/tablets the user can't hover, so we map a single
+  // touch → drag → release gesture onto the tool's stages:
+  //
+  //   * 2-point tools (line / circle / rectangle / calibrate)
+  //     - touch-down  ⇒ sets the first point (clearing any prior pending
+  //       state so each drag is self-contained)
+  //     - drag-update ⇒ live preview follows the finger
+  //     - release     ⇒ commits the measurement with the lift position
+  //                     as the second point
+  //
+  //   * Arc tool (3 stages, so it needs two gestures)
+  //     - 1st gesture: touch sets start, drag previews straight line,
+  //                    release sets end
+  //     - 2nd gesture: touch begins apex preview, drag follows finger,
+  //                    release commits the arc with apex at lift position
+  // ---------------------------------------------------------------------------
+  void _handleDragStart(Point2D pdfPoint) {
+    final interaction = ref.read(measurementInteractionProvider);
+    final notifier = ref.read(measurementInteractionProvider.notifier);
+    if (interaction.toolMode == ToolMode.select) return;
+
+    final isArcApexStage = interaction.toolMode == ToolMode.arc &&
+        interaction.pendingFirstPoint != null &&
+        interaction.pendingSecondPoint != null;
+
+    if (!isArcApexStage) {
+      // Start fresh: discard any stale pending state from prior taps so
+      // each touch-drag-release gesture is a complete measurement.
+      notifier.clearSecondPoint();
+      notifier.clearFirstPoint();
+      // Touch-down sets the first point; preview follows the finger.
+      notifier.setFirstPoint(_maybeSnap(pdfPoint));
+    }
+    _lastDragPdfPoint = pdfPoint;
+    _handlePointerHover(pdfPoint);
+  }
+
+  void _handleDragUpdate(Point2D pdfPoint) {
+    _lastDragPdfPoint = pdfPoint;
+    _handlePointerHover(pdfPoint);
+  }
+
+  void _handleDragEnd() {
+    final pdfPoint = _lastDragPdfPoint;
+    _lastDragPdfPoint = null;
+    if (pdfPoint == null) return;
+    final interaction = ref.read(measurementInteractionProvider);
+
+    // For arc stage-2 (start set, end not): the touch-down already set
+    // the start; drag-end now sets the end via the normal handler.
+    // For arc stage-3 (start + end set): drag-end commits with apex
+    // at lift position.
+    // For 2-point tools: drag-end commits with second point at lift.
+    _handleTap(pdfPoint);
+
+    // Each touch-drag-release on mobile is one self-contained measurement
+    // — break the line tool's desktop chain semantics so the next gesture
+    // starts a brand-new line rather than continuing from the last point.
+    if (interaction.toolMode == ToolMode.line) {
+      ref.read(measurementInteractionProvider.notifier).clearFirstPoint();
+    }
   }
 
   void _handleMeasureTap(
@@ -1033,6 +1115,10 @@ class _PdfViewerScreenState extends ConsumerState<PdfViewerScreen> {
               onTap: _handleTap,
               onHover: _handlePointerHover,
               onSecondaryTap: _handleRightClick,
+              onDragStart: _handleDragStart,
+              onDragUpdate: _handleDragUpdate,
+              onDragEnd: _handleDragEnd,
+              enableTouchDrag: !_isDesktopOrWeb(),
               geometryVisible: _geometryVisible,
               selectedMeasurementId: _selectedMeasurementId,
             ),
@@ -1181,6 +1267,13 @@ class _PageOverlay extends ConsumerWidget {
   final void Function(Point2D) onTap;
   final void Function(Point2D) onHover;
   final VoidCallback onSecondaryTap;
+  // Mobile-only touch-and-drag drawing callbacks. Ignored when
+  // [enableTouchDrag] is false (desktop / web), letting the underlying
+  // PdfViewer keep its native pan-to-scroll gesture.
+  final void Function(Point2D) onDragStart;
+  final void Function(Point2D) onDragUpdate;
+  final VoidCallback onDragEnd;
+  final bool enableTouchDrag;
   final bool geometryVisible;
   final String? selectedMeasurementId;
 
@@ -1194,6 +1287,10 @@ class _PageOverlay extends ConsumerWidget {
     required this.onTap,
     required this.onHover,
     required this.onSecondaryTap,
+    required this.onDragStart,
+    required this.onDragUpdate,
+    required this.onDragEnd,
+    this.enableTouchDrag = false,
     this.geometryVisible = true,
     this.selectedMeasurementId,
   });
@@ -1404,6 +1501,28 @@ class _PageOverlay extends ConsumerWidget {
                   // Touch equivalent of right-click on mobile (Android/iOS):
                   // long-press cancels the most recent in-progress action.
                   onLongPress: onSecondaryTap,
+                  // Mobile touch-and-drag drawing: only wired when a drawing
+                  // tool is active so PdfViewer's native pan-to-scroll keeps
+                  // working in select mode. Pan handlers are completely
+                  // omitted on desktop/web so trackpad gestures, marquee
+                  // selection, and the existing zoom/pan behavior are
+                  // untouched.
+                  onPanStart: enableTouchDrag &&
+                          interaction.toolMode != ToolMode.select
+                      ? (details) => onDragStart(
+                            _overlayToPdf(details.localPosition, overlaySize),
+                          )
+                      : null,
+                  onPanUpdate: enableTouchDrag &&
+                          interaction.toolMode != ToolMode.select
+                      ? (details) => onDragUpdate(
+                            _overlayToPdf(details.localPosition, overlaySize),
+                          )
+                      : null,
+                  onPanEnd: enableTouchDrag &&
+                          interaction.toolMode != ToolMode.select
+                      ? (_) => onDragEnd()
+                      : null,
                 ),
               ),
             ),
