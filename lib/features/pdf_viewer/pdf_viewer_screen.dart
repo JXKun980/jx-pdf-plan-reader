@@ -1,3 +1,6 @@
+import 'dart:math' as math;
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -47,6 +50,7 @@ class _PdfViewerScreenState extends ConsumerState<PdfViewerScreen> {
   final _cursorPdfPosition = ValueNotifier<Point2D?>(null);
   final _previewCircleRadius = ValueNotifier<double?>(null);
   final _zoomLabel = ValueNotifier<String>('100%');
+  final _shiftHeld = ValueNotifier<bool>(false);
   bool _measurementPanelOpen = false;
   final _detectedPages = <int>{};
   bool _detecting = false;
@@ -63,6 +67,7 @@ class _PdfViewerScreenState extends ConsumerState<PdfViewerScreen> {
   void dispose() {
     _pdfViewerController.removeListener(_onZoomChanged);
     _zoomLabel.dispose();
+    _shiftHeld.dispose();
     _previewCircleRadius.dispose();
     _cursorPdfPosition.dispose();
     _hoveredMeasurementId.dispose();
@@ -163,6 +168,77 @@ class _PdfViewerScreenState extends ConsumerState<PdfViewerScreen> {
     return _findNearestJoint(pdfPoint) ?? pdfPoint;
   }
 
+  /// True when the host platform has a physical keyboard (and therefore
+  /// Shift as a usable modifier). Web counts because most browser users
+  /// have a keyboard; mobile-native targets are excluded.
+  bool _isDesktopOrWeb() {
+    if (kIsWeb) return true;
+    switch (defaultTargetPlatform) {
+      case TargetPlatform.windows:
+      case TargetPlatform.macOS:
+      case TargetPlatform.linux:
+        return true;
+      case TargetPlatform.android:
+      case TargetPlatform.iOS:
+      case TargetPlatform.fuchsia:
+        return false;
+    }
+  }
+
+  /// Returns a short instruction string for the floating tool tip banner
+  /// based on the currently-active tool and how far along the user is in
+  /// the drawing flow. Returns `null` when no tip should be shown
+  /// (e.g. the select / pointer tool).
+  String? _toolTipText(MeasurementInteractionState interaction) {
+    final hasFirst = interaction.pendingFirstPoint != null;
+    final hasSecond = interaction.pendingSecondPoint != null;
+
+    switch (interaction.toolMode) {
+      case ToolMode.select:
+        return null;
+      case ToolMode.line:
+        if (!hasFirst) {
+          return 'Click anywhere to mark the starting point.';
+        }
+        return 'Click to draw a line. Right-click to stop.';
+      case ToolMode.arc:
+        if (!hasFirst) {
+          return 'Click anywhere to mark the arc start point.';
+        }
+        if (!hasSecond) {
+          return 'Click to set the arc end point. Right-click to cancel.';
+        }
+        // Stage 3 — picking the apex. Describe the active mode
+        // ('Arc' = circular through 3 points, 'Free' = Bezier where the
+        // cursor IS the curve's peak) and, on desktop/web only, mention
+        // the Shift override.
+        final mode = interaction.arcSymmetric ? 'Arc' : 'Free';
+        final base =
+            'Click to set the curve apex ($mode). Right-click to go back.';
+        if (_isDesktopOrWeb()) {
+          return interaction.arcSymmetric
+              ? '$base Hold Shift for Free.'
+              : '$base Hold Shift for Arc.';
+        }
+        return base;
+      case ToolMode.circle:
+        if (!hasFirst) {
+          return 'Click anywhere to set the circle center.';
+        }
+        return 'Click to set the radius. Right-click to cancel.';
+      case ToolMode.rectangle:
+        if (!hasFirst) {
+          return 'Click anywhere to set the first corner.';
+        }
+        return 'Click to set the opposite corner. Right-click to cancel.';
+      case ToolMode.calibrate:
+        if (!hasFirst) {
+          return 'Click the first point of a known-length feature.';
+        }
+        return 'Click the second point to set the calibration. Right-click to cancel.';
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // Geometry detection
   // ---------------------------------------------------------------------------
@@ -255,6 +331,36 @@ class _PdfViewerScreenState extends ConsumerState<PdfViewerScreen> {
     }
   }
 
+  /// Right-click cancels the most recent in-progress action.
+  ///
+  /// - In the middle of drawing (e.g. after picking arc's 2nd point) → drop
+  ///   just that last point and step back one stage.
+  /// - With only the first point picked → drop it and return to "about to
+  ///   pick first point".
+  /// - With nothing picked → exit the tool and return to the pointer.
+  void _handleRightClick() {
+    final interaction = ref.read(measurementInteractionProvider);
+    final notifier = ref.read(measurementInteractionProvider.notifier);
+
+    // Select tool: nothing to cancel.
+    if (interaction.toolMode == ToolMode.select) return;
+
+    if (interaction.pendingSecondPoint != null) {
+      // Arc 3rd-stage → step back to "have first point, pick second".
+      notifier.clearSecondPoint();
+      return;
+    }
+
+    if (interaction.pendingFirstPoint != null) {
+      // Step back to "about to pick first point".
+      notifier.clearFirstPoint();
+      return;
+    }
+
+    // Nothing pending → exit the tool, return to pointer/select mode.
+    notifier.setTool(ToolMode.select);
+  }
+
   void _handleMeasureTap(
     Point2D rawPoint,
     MeasurementInteractionState interaction,
@@ -270,6 +376,13 @@ class _PdfViewerScreenState extends ConsumerState<PdfViewerScreen> {
     }
 
     final startPoint = interaction.pendingFirstPoint!;
+
+    // Ignore zero-length clicks (e.g. accidental double-click on same spot)
+    // but keep the chain alive so the user can keep going.
+    if (startPoint.distanceTo(point) == 0) {
+      return;
+    }
+
     final startSnap = _findNearestJoint(startPoint);
     final measurement = Measurement(
       id: const Uuid().v4(),
@@ -287,7 +400,11 @@ class _PdfViewerScreenState extends ConsumerState<PdfViewerScreen> {
           _readPage,
           _updatePage,
         );
-    notifier.clearFirstPoint();
+
+    // Chain mode: the next line starts where this one ended. Right-click
+    // (handled in _handleRightClick) clears the pending first point and
+    // stops the chain while staying in the line tool.
+    notifier.setFirstPoint(point);
   }
 
   void _handleArcTap(
@@ -309,24 +426,42 @@ class _PdfViewerScreenState extends ConsumerState<PdfViewerScreen> {
       return;
     }
 
-    // Step 3: third click defines the midpoint → create arc through 3 points.
+    // Step 3: third click defines the apex.
+    //  - Arc mode (toolbar toggle ON, or Shift on desktop/web inverts):
+    //    classic 3-point circular arc passing through start, cursor, end.
+    //  - Free mode (toolbar toggle OFF): quadratic Bezier where the cursor
+    //    IS the peak (curve point at t=0.5); the bezier control point is
+    //    `2 * cursor - midpoint(start, end)`.
     final start = interaction.pendingFirstPoint!;
     final end = interaction.pendingSecondPoint!;
-    final arc = ArcSegment.fromThreePoints(start, point, end);
+    final arcMode = _effectiveArcSymmetric(interaction, _shiftHeld.value);
 
-    if (!arc.radius.isFinite || arc.radius <= 0) {
-      notifier.clearFirstPoint();
-      return;
+    final Measurement measurement;
+    if (arcMode) {
+      final arc = ArcSegment.fromThreePoints(start, point, end);
+      if (!arc.radius.isFinite || arc.radius <= 0) {
+        notifier.clearFirstPoint();
+        return;
+      }
+      measurement = Measurement(
+        id: const Uuid().v4(),
+        type: MeasurementType.arc,
+        startPoint: start,
+        endPoint: end,
+        arcSegment: arc,
+        pixelLength: arc.arcLength,
+      );
+    } else {
+      final control = _bezierControlFromApex(start, end, point);
+      measurement = Measurement(
+        id: const Uuid().v4(),
+        type: MeasurementType.arc,
+        startPoint: start,
+        endPoint: end,
+        bezierControl: control,
+        pixelLength: _bezierLength(start, control, end),
+      );
     }
-
-    final measurement = Measurement(
-      id: const Uuid().v4(),
-      type: MeasurementType.arc,
-      startPoint: start,
-      endPoint: end,
-      arcSegment: arc,
-      pixelLength: arc.arcLength,
-    );
 
     ref.read(historyProvider.notifier).perform(
           AddMeasurementCommand(measurement),
@@ -504,45 +639,10 @@ class _PdfViewerScreenState extends ConsumerState<PdfViewerScreen> {
 
     if (best != null) {
       setState(() => _selectedMeasurementId = best!.id);
-      _showMeasurementActions(best);
-    } else {
+    } else if (_selectedMeasurementId != null) {
       // Tap on empty space → deselect.
-      if (_selectedMeasurementId != null) {
-        setState(() => _selectedMeasurementId = null);
-      }
+      setState(() => _selectedMeasurementId = null);
     }
-  }
-
-  void _showMeasurementActions(Measurement m) {
-    final calibration = ref.read(currentCalibrationProvider);
-    showModalBottomSheet(
-      context: context,
-      builder: (ctx) => Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              calibration != null
-                  ? m.formatLength(calibration.pixelsPerMm)
-                  : '${m.pixelLength.toStringAsFixed(1)} px',
-              style: Theme.of(ctx).textTheme.headlineSmall,
-            ),
-            const SizedBox(height: 16),
-            ListTile(
-              leading: const Icon(Icons.delete, color: Colors.red),
-              title: const Text('Delete measurement'),
-              onTap: () {
-                Navigator.pop(ctx);
-                _deleteMeasurement(m);
-              },
-            ),
-          ],
-        ),
-      ),
-    ).whenComplete(() {
-      if (mounted) setState(() => _selectedMeasurementId = null);
-    });
   }
 
   void _deleteMeasurement(Measurement m) {
@@ -602,10 +702,17 @@ class _PdfViewerScreenState extends ConsumerState<PdfViewerScreen> {
   // ---------------------------------------------------------------------------
 
   KeyEventResult _handleKeyEvent(FocusNode node, KeyEvent event) {
+    // Track Shift state on both press and release so the arc-preview can
+    // toggle between free and symmetric mode while the cursor is stationary.
+    final shiftNow = HardwareKeyboard.instance.isShiftPressed;
+    if (_shiftHeld.value != shiftNow) {
+      _shiftHeld.value = shiftNow;
+    }
+
     if (event is! KeyDownEvent) return KeyEventResult.ignored;
 
     final ctrl = HardwareKeyboard.instance.isControlPressed;
-    final shift = HardwareKeyboard.instance.isShiftPressed;
+    final shift = shiftNow;
 
     if (ctrl && event.logicalKey == LogicalKeyboardKey.keyZ) {
       final pageIndex = _pageIndex;
@@ -675,6 +782,10 @@ class _PdfViewerScreenState extends ConsumerState<PdfViewerScreen> {
                   onSnapToleranceChanged: (v) => ref
                       .read(measurementInteractionProvider.notifier)
                       .setSnapTolerance(v),
+                  arcSymmetric: interaction.arcSymmetric,
+                  onArcSymmetricToggled: () => ref
+                      .read(measurementInteractionProvider.notifier)
+                      .toggleArcSymmetric(),
                   onZoomIn: _zoomIn,
                   onZoomOut: _zoomOut,
                   onZoomFit: _zoomFit,
@@ -705,9 +816,62 @@ class _PdfViewerScreenState extends ConsumerState<PdfViewerScreen> {
                 );
               },
             ),
+            // Floating tool tip (top center) — guides the user through each
+            // stage of the currently selected drawing tool.
+            Positioned(
+              top: 12,
+              left: 0,
+              right: 0,
+              child: IgnorePointer(
+                child: Center(
+                  child: Builder(
+                    builder: (_) {
+                      final tip = _toolTipText(interaction);
+                      if (tip == null) return const SizedBox.shrink();
+                      return _ToolTipBanner(text: tip);
+                    },
+                  ),
+                ),
+              ),
+            ),
             // Floating page dock (right side, bottom)
             if ((project?.pageCount ?? 0) > 1)
               _buildFloatingPageDock(project!.pageCount, pageIndex),
+            // Floating actions for the selected measurement (left side).
+            if (_selectedMeasurementId != null)
+              Consumer(
+                builder: (context, ref, _) {
+                  final pd = ref.watch(currentPageDataProvider);
+                  final cal = ref.watch(currentCalibrationProvider);
+                  Measurement? sel;
+                  for (final m in pd.measurements) {
+                    if (m.id == _selectedMeasurementId) {
+                      sel = m;
+                      break;
+                    }
+                  }
+                  if (sel == null) return const SizedBox.shrink();
+                  return Positioned(
+                    left: 16,
+                    top: 96,
+                    child: _SelectedMeasurementActions(
+                      showCalibrate: cal == null &&
+                          sel.type == MeasurementType.linear,
+                      onDelete: () {
+                        _deleteMeasurement(sel!);
+                        setState(() => _selectedMeasurementId = null);
+                      },
+                      onCalibrate: () {
+                        final s = sel!;
+                        setState(() => _selectedMeasurementId = null);
+                        _showCalibrationDialog(s.startPoint, s.endPoint);
+                      },
+                      onClose: () =>
+                          setState(() => _selectedMeasurementId = null),
+                    ),
+                  );
+                },
+              ),
             // Floating detect geometry button / hide-show toggle
             Positioned(
               left: 16,
@@ -821,8 +985,10 @@ class _PdfViewerScreenState extends ConsumerState<PdfViewerScreen> {
               hoveredMeasurementId: _hoveredMeasurementId,
               cursorPdfPosition: _cursorPdfPosition,
               previewCircleRadius: _previewCircleRadius,
+              shiftHeld: _shiftHeld,
               onTap: _handleTap,
               onHover: _handlePointerHover,
+              onSecondaryTap: _handleRightClick,
               geometryVisible: _geometryVisible,
               selectedMeasurementId: _selectedMeasurementId,
             ),
@@ -962,8 +1128,10 @@ class _PageOverlay extends ConsumerWidget {
   final ValueNotifier<String?> hoveredMeasurementId;
   final ValueNotifier<Point2D?> cursorPdfPosition;
   final ValueNotifier<double?> previewCircleRadius;
+  final ValueNotifier<bool> shiftHeld;
   final void Function(Point2D) onTap;
   final void Function(Point2D) onHover;
+  final VoidCallback onSecondaryTap;
   final bool geometryVisible;
   final String? selectedMeasurementId;
 
@@ -973,8 +1141,10 @@ class _PageOverlay extends ConsumerWidget {
     required this.hoveredMeasurementId,
     required this.cursorPdfPosition,
     required this.previewCircleRadius,
+    required this.shiftHeld,
     required this.onTap,
     required this.onHover,
+    required this.onSecondaryTap,
     this.geometryVisible = true,
     this.selectedMeasurementId,
   });
@@ -985,14 +1155,66 @@ class _PageOverlay extends ConsumerWidget {
     return Point2D(localPos.dx * scaleX, page.height - localPos.dy * scaleY);
   }
 
-  ArcSegment? _computePreviewArc(
+  /// Returns true while the arc tool is in its apex-picking stage and is
+  /// currently configured as Arc mode (circular). Used to render the
+  /// dashed cursor-to-second-endpoint bulge guide.
+  bool _isArcModeApexStage(
+    MeasurementInteractionState interaction,
+    bool shiftHeld,
+  ) {
+    if (interaction.toolMode != ToolMode.arc) return false;
+    if (interaction.pendingFirstPoint == null) return false;
+    if (interaction.pendingSecondPoint == null) return false;
+    return _effectiveArcSymmetric(interaction, shiftHeld);
+  }
+
+  /// Cursor position to show as the Bezier apex indicator (small ring),
+  /// only when arc tool is in apex-picking stage AND configured as Bezier
+  /// (Free) mode.
+  Point2D? _computePreviewBezierApex(
     MeasurementInteractionState interaction,
     Point2D? cursor,
+    bool shiftHeld,
   ) {
     if (interaction.toolMode != ToolMode.arc) return null;
     if (interaction.pendingFirstPoint == null) return null;
     if (interaction.pendingSecondPoint == null) return null;
     if (cursor == null) return null;
+    if (_effectiveArcSymmetric(interaction, shiftHeld)) return null;
+    return cursor;
+  }
+
+  /// Bezier control point for the Free-mode preview. Null in Arc mode or
+  /// before apex stage.
+  Point2D? _computePreviewBezierControl(
+    MeasurementInteractionState interaction,
+    Point2D? cursor,
+    bool shiftHeld,
+  ) {
+    if (interaction.toolMode != ToolMode.arc) return null;
+    if (interaction.pendingFirstPoint == null) return null;
+    if (interaction.pendingSecondPoint == null) return null;
+    if (cursor == null) return null;
+    if (_effectiveArcSymmetric(interaction, shiftHeld)) return null;
+    return _bezierControlFromApex(
+      interaction.pendingFirstPoint!,
+      interaction.pendingSecondPoint!,
+      cursor,
+    );
+  }
+
+  /// Circular-arc preview (Arc mode). Returns the 3-point arc through
+  /// start, cursor, end; null in Bezier mode or before apex stage.
+  ArcSegment? _computePreviewArc(
+    MeasurementInteractionState interaction,
+    Point2D? cursor,
+    bool shiftHeld,
+  ) {
+    if (interaction.toolMode != ToolMode.arc) return null;
+    if (interaction.pendingFirstPoint == null) return null;
+    if (interaction.pendingSecondPoint == null) return null;
+    if (cursor == null) return null;
+    if (!_effectiveArcSymmetric(interaction, shiftHeld)) return null;
 
     try {
       final arc = ArcSegment.fromThreePoints(
@@ -1005,6 +1227,27 @@ class _PageOverlay extends ConsumerWidget {
     } catch (_) {
       return null;
     }
+  }
+
+  /// Cursor-following straight-line preview.
+  ///
+  /// - Line tool: from `pendingFirstPoint` to cursor (after click 1).
+  /// - Arc tool:  from `pendingFirstPoint` to cursor while still picking the
+  ///   second endpoint (click 1 → click 2 phase). Once both endpoints are
+  ///   set, the arc preview takes over via `_computePreviewArc`.
+  Point2D? _computePreviewLineEnd(
+    MeasurementInteractionState interaction,
+    Point2D? cursor,
+  ) {
+    if (cursor == null) return null;
+    if (interaction.pendingFirstPoint == null) return null;
+
+    if (interaction.toolMode == ToolMode.line) return cursor;
+    if (interaction.toolMode == ToolMode.arc &&
+        interaction.pendingSecondPoint == null) {
+      return cursor;
+    }
+    return null;
   }
 
   bool _isMeasurementTool(ToolMode mode) =>
@@ -1043,7 +1286,10 @@ class _PageOverlay extends ConsumerWidget {
                       builder: (context, cursor, _) =>
                           ValueListenableBuilder<double?>(
                         valueListenable: previewCircleRadius,
-                        builder: (context, circleR, _) => CanvasOverlay(
+                        builder: (context, circleR, _) =>
+                            ValueListenableBuilder<bool>(
+                          valueListenable: shiftHeld,
+                          builder: (context, shift, _) => CanvasOverlay(
                           detectedElements: geometryVisible
                               ? pageData.detectedElements
                               : const [],
@@ -1073,8 +1319,17 @@ class _PageOverlay extends ConsumerWidget {
                                       interaction.pendingFirstPoint != null
                                   ? cursor
                                   : null,
-                          previewArc: _computePreviewArc(
+                          previewLineEnd: _computePreviewLineEnd(
                               interaction, cursor),
+                          previewArc: _computePreviewArc(
+                              interaction, cursor, shift),
+                          previewBezierControl: _computePreviewBezierControl(
+                              interaction, cursor, shift),
+                          previewBezierApex: _computePreviewBezierApex(
+                              interaction, cursor, shift),
+                          showArcBulgeGuide:
+                              _isArcModeApexStage(interaction, shift),
+                          ),
                         ),
                       ),
                     ),
@@ -1096,6 +1351,7 @@ class _PageOverlay extends ConsumerWidget {
                   behavior: HitTestBehavior.translucent,
                   onTapUp: (details) =>
                       onTap(_overlayToPdf(details.localPosition, overlaySize)),
+                  onSecondaryTapUp: (_) => onSecondaryTap(),
                 ),
               ),
             ),
@@ -1126,4 +1382,146 @@ class _DetectGeometryButton extends StatelessWidget {
       foregroundColor: Theme.of(context).colorScheme.onPrimaryContainer,
     );
   }
+}
+
+// ---------------------------------------------------------------------------
+// Floating action panel shown on the left side when a measurement is
+// selected. Provides delete + optional calibrate (only for line measurements
+// on uncalibrated pages) + close.
+// ---------------------------------------------------------------------------
+
+class _SelectedMeasurementActions extends StatelessWidget {
+  final bool showCalibrate;
+  final VoidCallback onDelete;
+  final VoidCallback onCalibrate;
+  final VoidCallback onClose;
+
+  const _SelectedMeasurementActions({
+    required this.showCalibrate,
+    required this.onDelete,
+    required this.onCalibrate,
+    required this.onClose,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      elevation: 6,
+      borderRadius: BorderRadius.circular(8),
+      color: Theme.of(context).colorScheme.surface,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            IconButton(
+              icon: const Icon(Icons.delete, color: Colors.red),
+              tooltip: 'Delete measurement',
+              onPressed: onDelete,
+            ),
+            if (showCalibrate)
+              IconButton(
+                icon: const Icon(Icons.square_foot),
+                tooltip: 'Calibrate using this measurement',
+                onPressed: onCalibrate,
+              ),
+            const Divider(height: 1),
+            IconButton(
+              icon: const Icon(Icons.close, size: 18),
+              tooltip: 'Deselect',
+              onPressed: onClose,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Small floating banner that displays a one-line instruction for the
+/// currently active drawing tool. Rendered at the top center of the viewer.
+class _ToolTipBanner extends StatelessWidget {
+  final String text;
+
+  const _ToolTipBanner({required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Material(
+      elevation: 4,
+      color: scheme.inverseSurface.withValues(alpha: 0.92),
+      borderRadius: BorderRadius.circular(20),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.info_outline,
+              size: 16,
+              color: scheme.onInverseSurface,
+            ),
+            const SizedBox(width: 8),
+            Flexible(
+              child: Text(
+                text,
+                style: TextStyle(
+                  color: scheme.onInverseSurface,
+                  fontSize: 13,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Arc-tool helpers (top-level so both the screen-state and the page-overlay
+// can share the same logic).
+// ---------------------------------------------------------------------------
+
+/// Returns true when the arc tool should commit a classic circular arc
+/// (formerly "symmetric"). The persistent toolbar toggle sets the default;
+/// Shift inverts it for the current click on desktop/web.
+///
+/// - `true`  → circular 3-point arc through start, cursor, end.
+/// - `false` → quadratic Bezier with the cursor as the curve's peak.
+bool _effectiveArcSymmetric(
+  MeasurementInteractionState interaction,
+  bool shiftHeld,
+) {
+  // XOR: shift inverts the toggle.
+  return interaction.arcSymmetric ^ shiftHeld;
+}
+
+/// Quadratic Bezier control point such that the curve's peak at t=0.5
+/// is exactly at [apex]. Derivation: `B(0.5) = 0.25·P0 + 0.5·P1 + 0.25·P2`,
+/// so `P1 = 2·apex − midpoint(P0, P2)`.
+Point2D _bezierControlFromApex(Point2D start, Point2D end, Point2D apex) {
+  final midX = (start.x + end.x) / 2;
+  final midY = (start.y + end.y) / 2;
+  return Point2D(2 * apex.x - midX, 2 * apex.y - midY);
+}
+
+/// Numeric arc-length of a quadratic Bezier (sampled subdivision).
+double _bezierLength(Point2D p0, Point2D p1, Point2D p2, {int samples = 64}) {
+  double prevX = p0.x;
+  double prevY = p0.y;
+  double length = 0;
+  for (var i = 1; i <= samples; i++) {
+    final t = i / samples;
+    final mt = 1 - t;
+    final x = mt * mt * p0.x + 2 * mt * t * p1.x + t * t * p2.x;
+    final y = mt * mt * p0.y + 2 * mt * t * p1.y + t * t * p2.y;
+    final dx = x - prevX;
+    final dy = y - prevY;
+    length += math.sqrt(dx * dx + dy * dy);
+    prevX = x;
+    prevY = y;
+  }
+  return length;
 }
