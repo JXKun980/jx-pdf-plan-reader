@@ -61,11 +61,20 @@ class _PdfViewerScreenState extends ConsumerState<PdfViewerScreen> {
   void initState() {
     super.initState();
     _pdfViewerController.addListener(_onZoomChanged);
+    // On web, right-click would otherwise open the browser's native
+    // context menu (annoying when the user just wants to cancel a tool
+    // action). Disable it while this screen is mounted; restore on dispose.
+    if (kIsWeb) {
+      BrowserContextMenu.disableContextMenu();
+    }
   }
 
   @override
   void dispose() {
     _pdfViewerController.removeListener(_onZoomChanged);
+    if (kIsWeb) {
+      BrowserContextMenu.enableContextMenu();
+    }
     _zoomLabel.dispose();
     _shiftHeld.dispose();
     _previewCircleRadius.dispose();
@@ -945,11 +954,14 @@ class _PdfViewerScreenState extends ConsumerState<PdfViewerScreen> {
       boundaryMargin: const EdgeInsets.all(double.infinity),
       scrollByMouseWheel: null,
       // Fit-to-screen whenever the viewer becomes ready (page change / load).
+      // Snap with Duration.zero so the user never sees the pre-fit (raw
+      // document-space) position briefly before it animates to fit.
       onViewerReady: (_, controller) {
         Future.microtask(() {
           controller.goToPage(
             pageNumber: pageIndex + 1,
             anchor: PdfPageAnchor.all,
+            duration: Duration.zero,
           );
         });
       },
@@ -1076,13 +1088,18 @@ class _PdfViewerScreenState extends ConsumerState<PdfViewerScreen> {
   void _navigateToPage(int index) {
     ref.read(activePageIndexProvider.notifier).setPage(index);
     ref.read(measurementInteractionProvider.notifier).clearFirstPoint();
-    // Wait for the new layoutPages to apply, then fit-to-screen.
+    // Wait for the new layoutPages callback to apply, then snap (no
+    // animation) to the fit-to-page transform so the user never sees the
+    // brief intermediate position. We chain two post-frame callbacks: the
+    // first ensures the page-index state change has been flushed; the
+    // second runs after the next layout pass that uses the new pageIndex.
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      Future.delayed(const Duration(milliseconds: 100), () {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted && _pdfViewerController.isReady) {
           _pdfViewerController.goToPage(
             pageNumber: index + 1,
             anchor: PdfPageAnchor.all,
+            duration: Duration.zero,
           );
         }
       });
