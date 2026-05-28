@@ -8,7 +8,14 @@ class Measurement {
   final MeasurementType type;
   final Point2D startPoint;
   final Point2D endPoint;
-  final ArcSegment? arcSegment; // Only for arc measurements
+  final ArcSegment? arcSegment; // Only for circular arc measurements
+  /// Control point for a quadratic Bezier curve. When set (alongside
+  /// [MeasurementType.arc]), the measurement renders and computes as a
+  /// quadratic Bezier with [startPoint], [bezierControl], [endPoint] in
+  /// place of a circular arc. The user-clicked apex (the cursor at commit
+  /// time) is the curve's peak at t=0.5; the control point is derived from
+  /// it via `control = 2 * apex - midpoint(start, end)`.
+  final Point2D? bezierControl;
   final double pixelLength;
   final bool startSnapped;
   final bool endSnapped;
@@ -22,6 +29,7 @@ class Measurement {
     required this.startPoint,
     required this.endPoint,
     this.arcSegment,
+    this.bezierControl,
     required this.pixelLength,
     this.startSnapped = false,
     this.endSnapped = false,
@@ -50,6 +58,8 @@ class Measurement {
     Point2D? endPoint,
     ArcSegment? arcSegment,
     bool clearArcSegment = false,
+    Point2D? bezierControl,
+    bool clearBezierControl = false,
     double? pixelLength,
     bool? startSnapped,
     bool? endSnapped,
@@ -61,6 +71,9 @@ class Measurement {
       startPoint: startPoint ?? this.startPoint,
       endPoint: endPoint ?? this.endPoint,
       arcSegment: clearArcSegment ? null : (arcSegment ?? this.arcSegment),
+      bezierControl: clearBezierControl
+          ? null
+          : (bezierControl ?? this.bezierControl),
       pixelLength: pixelLength ?? this.pixelLength,
       startSnapped: startSnapped ?? this.startSnapped,
       endSnapped: endSnapped ?? this.endSnapped,
@@ -74,6 +87,7 @@ class Measurement {
         'startPoint': startPoint.toJson(),
         'endPoint': endPoint.toJson(),
         if (arcSegment != null) 'arcSegment': arcSegment!.toJson(),
+        if (bezierControl != null) 'bezierControl': bezierControl!.toJson(),
         'pixelLength': pixelLength,
         'startSnapped': startSnapped,
         'endSnapped': endSnapped,
@@ -87,6 +101,9 @@ class Measurement {
         endPoint: Point2D.fromJson(json['endPoint'] as Map<String, dynamic>),
         arcSegment: json['arcSegment'] != null
             ? ArcSegment.fromJson(json['arcSegment'] as Map<String, dynamic>)
+            : null,
+        bezierControl: json['bezierControl'] != null
+            ? Point2D.fromJson(json['bezierControl'] as Map<String, dynamic>)
             : null,
         pixelLength: (json['pixelLength'] as num).toDouble(),
         startSnapped: json['startSnapped'] as bool? ?? false,

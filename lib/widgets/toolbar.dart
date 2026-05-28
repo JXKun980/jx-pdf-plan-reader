@@ -14,6 +14,8 @@ class Toolbar extends StatelessWidget {
   final VoidCallback onRedo;
   final ValueChanged<bool> onSnapToggled;
   final ValueChanged<double> onSnapToleranceChanged;
+  final bool arcSymmetric;
+  final VoidCallback onArcSymmetricToggled;
   final VoidCallback? onZoomIn;
   final VoidCallback? onZoomOut;
   final VoidCallback? onZoomFit;
@@ -32,6 +34,8 @@ class Toolbar extends StatelessWidget {
     required this.onRedo,
     required this.onSnapToggled,
     required this.onSnapToleranceChanged,
+    required this.arcSymmetric,
+    required this.onArcSymmetricToggled,
     this.onZoomIn,
     this.onZoomOut,
     this.onZoomFit,
@@ -140,6 +144,29 @@ class Toolbar extends StatelessWidget {
                         onChanged: onSnapToleranceChanged,
                       ),
                     ),
+                  if (activeTool == ToolMode.arc) ...[
+                    _divider(),
+                    IconButton(
+                      icon: Icon(
+                        Icons.swap_horiz,
+                        color: arcSymmetric
+                            ? Theme.of(context).colorScheme.primary
+                            : null,
+                      ),
+                      tooltip: arcSymmetric
+                          ? 'Curve: Arc (circular). Click to switch to Free (Bezier).'
+                          : 'Curve: Free (Bezier). Click to switch to Arc (circular).',
+                      onPressed: onArcSymmetricToggled,
+                      style: arcSymmetric
+                          ? IconButton.styleFrom(
+                              backgroundColor: Theme.of(context)
+                                  .colorScheme
+                                  .primary
+                                  .withValues(alpha: 0.12),
+                            )
+                          : null,
+                    ),
+                  ],
                   if (onZoomIn != null) ...[
                     _divider(),
                     IconButton(

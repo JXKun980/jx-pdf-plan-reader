@@ -11,12 +11,19 @@ class MeasurementInteractionState {
   final bool snapEnabled;
   final double snapTolerance;
 
+  /// When true, the arc tool constrains the third (apex) click to the
+  /// perpendicular bisector of the chord between the first two points,
+  /// producing a symmetric arc. When false, the apex is free and the arc
+  /// is the unique circle passing through all three picked points.
+  final bool arcSymmetric;
+
   const MeasurementInteractionState({
     this.toolMode = ToolMode.select,
     this.pendingFirstPoint,
     this.pendingSecondPoint,
     this.snapEnabled = true,
     this.snapTolerance = 10.0,
+    this.arcSymmetric = false,
   });
 
   MeasurementInteractionState copyWith({
@@ -27,6 +34,7 @@ class MeasurementInteractionState {
     bool clearSecondPoint = false,
     bool? snapEnabled,
     double? snapTolerance,
+    bool? arcSymmetric,
   }) {
     return MeasurementInteractionState(
       toolMode: toolMode ?? this.toolMode,
@@ -36,6 +44,7 @@ class MeasurementInteractionState {
           clearSecondPoint ? null : (pendingSecondPoint ?? this.pendingSecondPoint),
       snapEnabled: snapEnabled ?? this.snapEnabled,
       snapTolerance: snapTolerance ?? this.snapTolerance,
+      arcSymmetric: arcSymmetric ?? this.arcSymmetric,
     );
   }
 }
@@ -66,11 +75,23 @@ class MeasurementInteractionNotifier
     state = state.copyWith(clearPendingPoint: true, clearSecondPoint: true);
   }
 
+  void clearSecondPoint() {
+    state = state.copyWith(clearSecondPoint: true);
+  }
+
   void toggleSnap() {
     state = state.copyWith(snapEnabled: !state.snapEnabled);
   }
 
   void setSnapTolerance(double tolerance) {
     state = state.copyWith(snapTolerance: tolerance);
+  }
+
+  void toggleArcSymmetric() {
+    state = state.copyWith(arcSymmetric: !state.arcSymmetric);
+  }
+
+  void setArcSymmetric(bool value) {
+    state = state.copyWith(arcSymmetric: value);
   }
 }
