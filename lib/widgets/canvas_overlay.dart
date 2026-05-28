@@ -305,11 +305,38 @@ class _OverlayPainter extends CustomPainter {
         );
       }
 
-      // Label
+      // Label — placed at the geometric peak of the curve (arc/bezier) or
+      // midpoint of the chord for linear measurements.
       final label = _formatMeasurement(m);
-      final mid = m.startPoint.midpointTo(m.endPoint);
-      _drawLabel(canvas, _toLocal(mid), label);
+      final anchor = _labelAnchorFor(m);
+      _drawLabel(canvas, _toLocal(anchor), label);
     }
+  }
+
+  /// Returns the PDF-space point where a measurement's label should be
+  /// anchored. For arc-typed measurements this is the peak of the curve
+  /// (midpoint along the arc / Bezier `t=0.5`); otherwise the midpoint of
+  /// the chord between start and end.
+  Point2D _labelAnchorFor(Measurement m) {
+    if (m.type == MeasurementType.arc) {
+      if (m.bezierControl != null) {
+        // Quadratic Bezier peak at t=0.5: 0.25·P0 + 0.5·P1 + 0.25·P2.
+        final c = m.bezierControl!;
+        return Point2D(
+          0.25 * m.startPoint.x + 0.5 * c.x + 0.25 * m.endPoint.x,
+          0.25 * m.startPoint.y + 0.5 * c.y + 0.25 * m.endPoint.y,
+        );
+      }
+      if (m.arcSegment != null) {
+        final a = m.arcSegment!;
+        final midAngle = a.startAngle + a.sweepAngle / 2;
+        return Point2D(
+          a.center.x + a.radius * math.cos(midAngle),
+          a.center.y + a.radius * math.sin(midAngle),
+        );
+      }
+    }
+    return m.startPoint.midpointTo(m.endPoint);
   }
 
   String _formatMeasurement(Measurement m) {
@@ -638,8 +665,8 @@ class _OverlayPainter extends CustomPainter {
       case MeasurementType.arc:
         _drawArcOrBezierMeasurement(canvas, m, paint);
         final label = _formatMeasurement(m);
-        final mid = m.startPoint.midpointTo(m.endPoint);
-        _drawLabel(canvas, _toLocal(mid), label, highlighted: true);
+        final anchor = _labelAnchorFor(m);
+        _drawLabel(canvas, _toLocal(anchor), label, highlighted: true);
 
       case MeasurementType.circle:
         final center = _toLocal(m.startPoint);
