@@ -15,7 +15,11 @@ class Toolbar extends StatelessWidget {
   final ValueChanged<bool> onSnapToggled;
   final ValueChanged<double> onSnapToleranceChanged;
   final bool arcSymmetric;
-  final VoidCallback onArcSymmetricToggled;
+  /// Called when the user picks an arc sub-mode from the arc dropdown.
+  /// Receives `true` for the circular Arc sub-mode, `false` for the Free
+  /// (Bezier) sub-mode. Implementers should both activate the arc tool
+  /// (`ToolMode.arc`) and set the `arcSymmetric` flag accordingly.
+  final ValueChanged<bool> onArcSubModeSelected;
   final VoidCallback? onZoomIn;
   final VoidCallback? onZoomOut;
   final VoidCallback? onZoomFit;
@@ -35,7 +39,7 @@ class Toolbar extends StatelessWidget {
     required this.onSnapToggled,
     required this.onSnapToleranceChanged,
     required this.arcSymmetric,
-    required this.onArcSymmetricToggled,
+    required this.onArcSubModeSelected,
     this.onZoomIn,
     this.onZoomOut,
     this.onZoomFit,
@@ -82,10 +86,10 @@ class Toolbar extends StatelessWidget {
                     tooltip: 'Line',
                     mode: ToolMode.line,
                   ),
-                  _toolButton(
-                    icon: Icons.gesture,
-                    tooltip: 'Arc',
-                    mode: ToolMode.arc,
+                  _ArcDropdownButton(
+                    isActive: activeTool == ToolMode.arc,
+                    arcSymmetric: arcSymmetric,
+                    onSelected: onArcSubModeSelected,
                   ),
                   _toolButton(
                     icon: Icons.circle_outlined,
@@ -144,29 +148,6 @@ class Toolbar extends StatelessWidget {
                         onChanged: onSnapToleranceChanged,
                       ),
                     ),
-                  if (activeTool == ToolMode.arc) ...[
-                    _divider(),
-                    IconButton(
-                      icon: Icon(
-                        Icons.swap_horiz,
-                        color: arcSymmetric
-                            ? Theme.of(context).colorScheme.primary
-                            : null,
-                      ),
-                      tooltip: arcSymmetric
-                          ? 'Curve: Arc (circular). Click to switch to Free (Bezier).'
-                          : 'Curve: Free (Bezier). Click to switch to Arc (circular).',
-                      onPressed: onArcSymmetricToggled,
-                      style: arcSymmetric
-                          ? IconButton.styleFrom(
-                              backgroundColor: Theme.of(context)
-                                  .colorScheme
-                                  .primary
-                                  .withValues(alpha: 0.12),
-                            )
-                          : null,
-                    ),
-                  ],
                   if (onZoomIn != null) ...[
                     _divider(),
                     IconButton(
@@ -249,6 +230,180 @@ class Toolbar extends StatelessWidget {
       child: SizedBox(
         height: 24,
         child: VerticalDivider(width: 1, thickness: 1),
+      ),
+    );
+  }
+}
+
+/// Custom toolbar button that opens a slide-down dropdown of arc sub-modes
+/// (Free / Arc) directly underneath itself. Uses an [OverlayEntry] +
+/// [SizeTransition] so the menu animates top→bottom (rather than the
+/// material default scale animation) and its top edge sits flush with the
+/// bottom of the toolbar.
+class _ArcDropdownButton extends StatefulWidget {
+  final bool isActive;
+  final bool arcSymmetric;
+  final ValueChanged<bool> onSelected;
+
+  const _ArcDropdownButton({
+    required this.isActive,
+    required this.arcSymmetric,
+    required this.onSelected,
+  });
+
+  @override
+  State<_ArcDropdownButton> createState() => _ArcDropdownButtonState();
+}
+
+class _ArcDropdownButtonState extends State<_ArcDropdownButton>
+    with SingleTickerProviderStateMixin {
+  final _link = LayerLink();
+  late final AnimationController _controller;
+  OverlayEntry? _entry;
+  // Pixel offset from button bottom down to the toolbar's bottom border so
+  // the menu's top edge appears flush with the toolbar. Matches the
+  // toolbar Container's vertical padding (4 px).
+  static const double _menuTopOffset = 4;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 140),
+    );
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    _entry?.remove();
+    _entry = null;
+    super.dispose();
+  }
+
+  void _toggle() {
+    if (_entry == null) {
+      _open();
+    } else {
+      _close();
+    }
+  }
+
+  void _open() {
+    final overlay = Overlay.of(context);
+    _entry = OverlayEntry(builder: _buildOverlay);
+    overlay.insert(_entry!);
+    _controller.forward();
+  }
+
+  Future<void> _close() async {
+    if (_entry == null) return;
+    final entry = _entry!;
+    _entry = null;
+    await _controller.reverse();
+    entry.remove();
+  }
+
+  Widget _buildOverlay(BuildContext overlayContext) {
+    return Stack(
+      children: [
+        // Tap-outside-to-close scrim.
+        Positioned.fill(
+          child: GestureDetector(
+            behavior: HitTestBehavior.translucent,
+            onTap: _close,
+          ),
+        ),
+        CompositedTransformFollower(
+          link: _link,
+          showWhenUnlinked: false,
+          targetAnchor: Alignment.bottomLeft,
+          followerAnchor: Alignment.topLeft,
+          offset: const Offset(0, _menuTopOffset),
+          child: Align(
+            alignment: Alignment.topLeft,
+            child: SizeTransition(
+              sizeFactor: CurvedAnimation(
+                parent: _controller,
+                curve: Curves.easeOutCubic,
+              ),
+              axisAlignment: -1.0,
+              child: Material(
+                elevation: 6,
+                borderRadius: const BorderRadius.only(
+                  bottomLeft: Radius.circular(6),
+                  bottomRight: Radius.circular(6),
+                ),
+                clipBehavior: Clip.antiAlias,
+                child: IntrinsicWidth(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      _menuItem(false, Icons.gesture, 'Free (Bezier)'),
+                      _menuItem(true, Icons.architecture, 'Arc (circular)'),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _menuItem(bool symmetric, IconData icon, String label) {
+    final isCurrent = widget.isActive && widget.arcSymmetric == symmetric;
+    final color = isCurrent ? Colors.blue : null;
+    return InkWell(
+      onTap: () {
+        _close();
+        widget.onSelected(symmetric);
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        color: isCurrent ? Colors.blue.withValues(alpha: 0.08) : null,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 18, color: color),
+            const SizedBox(width: 10),
+            Text(label, style: TextStyle(color: color)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // Always use the same base icon so the toolbar button matches the
+    // visual weight/colour of its neighbours; the sub-mode is communicated
+    // by the dropdown items, not by the toolbar icon itself.
+    return CompositedTransformTarget(
+      link: _link,
+      child: Tooltip(
+        message: 'Curve — Free (Bezier) or Arc (circular)',
+        child: IconButton(
+          icon: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: const [
+              Icon(Icons.gesture),
+              SizedBox(width: 2),
+              Icon(Icons.arrow_drop_down, size: 18),
+            ],
+          ),
+          isSelected: widget.isActive,
+          onPressed: _toggle,
+          style: widget.isActive
+              ? IconButton.styleFrom(
+                  backgroundColor: Colors.blue.withValues(alpha: 0.12),
+                  foregroundColor: Colors.blue,
+                )
+              : null,
+        ),
       ),
     );
   }

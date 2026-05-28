@@ -783,9 +783,12 @@ class _PdfViewerScreenState extends ConsumerState<PdfViewerScreen> {
                       .read(measurementInteractionProvider.notifier)
                       .setSnapTolerance(v),
                   arcSymmetric: interaction.arcSymmetric,
-                  onArcSymmetricToggled: () => ref
-                      .read(measurementInteractionProvider.notifier)
-                      .toggleArcSymmetric(),
+                  onArcSubModeSelected: (symmetric) {
+                    final n = ref
+                        .read(measurementInteractionProvider.notifier);
+                    n.setTool(ToolMode.arc);
+                    n.setArcSymmetric(symmetric);
+                  },
                   onZoomIn: _zoomIn,
                   onZoomOut: _zoomOut,
                   onZoomFit: _zoomFit,
