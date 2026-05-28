@@ -1,4 +1,5 @@
 - Real time visuallisation of line drawing
+- Real time visuallisation of ARC drawing
 - Right click to cancel a preview and start again
 - Error when hovering over tool item
 - Size floating tip needs when overlap should highlight the last one that's touched by mouse
