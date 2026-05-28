@@ -837,62 +837,82 @@ class _PdfViewerScreenState extends ConsumerState<PdfViewerScreen> {
                 );
               },
             ),
-            // Floating tool tip (top center) — guides the user through each
-            // stage of the currently selected drawing tool.
+            // Floating page dock (right side, bottom)
+            if ((project?.pageCount ?? 0) > 1)
+              _buildFloatingPageDock(project!.pageCount, pageIndex),
+            // Top-anchored overlay column: the tool-tip banner (centered)
+            // is rendered first; the selected-measurement action panel
+            // (left-aligned) flows directly beneath it. Using a single
+            // top-anchored Column means the actions panel automatically
+            // shifts down when the banner wraps to multiple lines on
+            // narrow / mobile screens — no hard-coded `top:` value.
             Positioned(
               top: 12,
               left: 0,
               right: 0,
-              child: IgnorePointer(
-                child: Center(
-                  child: Builder(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Builder(
                     builder: (_) {
                       final tip = _toolTipText(interaction);
                       if (tip == null) return const SizedBox.shrink();
-                      return _ToolTipBanner(text: tip);
+                      return IgnorePointer(
+                        child: Center(child: _ToolTipBanner(text: tip)),
+                      );
                     },
                   ),
-                ),
+                  if (_selectedMeasurementId != null)
+                    Consumer(
+                      builder: (context, ref, _) {
+                        final pd = ref.watch(currentPageDataProvider);
+                        final cal = ref.watch(currentCalibrationProvider);
+                        Measurement? sel;
+                        for (final m in pd.measurements) {
+                          if (m.id == _selectedMeasurementId) {
+                            sel = m;
+                            break;
+                          }
+                        }
+                        if (sel == null) return const SizedBox.shrink();
+                        final hasBanner =
+                            _toolTipText(interaction) != null;
+                        return Padding(
+                          padding: EdgeInsets.only(
+                            left: 16,
+                            // Bigger gap below the banner; otherwise sit
+                            // near the top edge so the panel is reachable
+                            // without crowding the toolbar.
+                            top: hasBanner ? 12 : 0,
+                          ),
+                          child: Align(
+                            alignment: Alignment.centerLeft,
+                            child: _SelectedMeasurementActions(
+                              showCalibrate: cal == null &&
+                                  sel.type == MeasurementType.linear,
+                              onDelete: () {
+                                _deleteMeasurement(sel!);
+                                setState(
+                                    () => _selectedMeasurementId = null);
+                              },
+                              onCalibrate: () {
+                                final s = sel!;
+                                setState(
+                                    () => _selectedMeasurementId = null);
+                                _showCalibrationDialog(
+                                    s.startPoint, s.endPoint);
+                              },
+                              onClose: () => setState(
+                                  () => _selectedMeasurementId = null),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                ],
               ),
             ),
-            // Floating page dock (right side, bottom)
-            if ((project?.pageCount ?? 0) > 1)
-              _buildFloatingPageDock(project!.pageCount, pageIndex),
-            // Floating actions for the selected measurement (left side).
-            if (_selectedMeasurementId != null)
-              Consumer(
-                builder: (context, ref, _) {
-                  final pd = ref.watch(currentPageDataProvider);
-                  final cal = ref.watch(currentCalibrationProvider);
-                  Measurement? sel;
-                  for (final m in pd.measurements) {
-                    if (m.id == _selectedMeasurementId) {
-                      sel = m;
-                      break;
-                    }
-                  }
-                  if (sel == null) return const SizedBox.shrink();
-                  return Positioned(
-                    left: 16,
-                    top: 96,
-                    child: _SelectedMeasurementActions(
-                      showCalibrate: cal == null &&
-                          sel.type == MeasurementType.linear,
-                      onDelete: () {
-                        _deleteMeasurement(sel!);
-                        setState(() => _selectedMeasurementId = null);
-                      },
-                      onCalibrate: () {
-                        final s = sel!;
-                        setState(() => _selectedMeasurementId = null);
-                        _showCalibrationDialog(s.startPoint, s.endPoint);
-                      },
-                      onClose: () =>
-                          setState(() => _selectedMeasurementId = null),
-                    ),
-                  );
-                },
-              ),
             // Floating detect geometry button / hide-show toggle
             Positioned(
               left: 16,
