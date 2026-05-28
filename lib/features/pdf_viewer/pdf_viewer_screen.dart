@@ -202,29 +202,38 @@ class _PdfViewerScreenState extends ConsumerState<PdfViewerScreen> {
     final hasFirst = interaction.pendingFirstPoint != null;
     final hasSecond = interaction.pendingSecondPoint != null;
 
+    // Verbs / hints adapt to the input style so phone/tablet users see
+    // gestures they can actually perform.
+    final desktop = _isDesktopOrWeb();
+    final tap = desktop ? 'Click' : 'Tap';
+    final cancelStop = desktop ? 'Right-click to stop.' : 'Long-press to stop.';
+    final cancelCancel =
+        desktop ? 'Right-click to cancel.' : 'Long-press to cancel.';
+    final cancelBack =
+        desktop ? 'Right-click to go back.' : 'Long-press to go back.';
+
     switch (interaction.toolMode) {
       case ToolMode.select:
         return null;
       case ToolMode.line:
         if (!hasFirst) {
-          return 'Click anywhere to mark the starting point.';
+          return '$tap anywhere to mark the starting point.';
         }
-        return 'Click to draw a line. Right-click to stop.';
+        return '$tap to draw a line. $cancelStop';
       case ToolMode.arc:
         if (!hasFirst) {
-          return 'Click anywhere to mark the arc start point.';
+          return '$tap anywhere to mark the arc start point.';
         }
         if (!hasSecond) {
-          return 'Click to set the arc end point. Right-click to cancel.';
+          return '$tap to set the arc end point. $cancelCancel';
         }
         // Stage 3 — picking the apex. Describe the active mode
         // ('Arc' = circular through 3 points, 'Free' = Bezier where the
         // cursor IS the curve's peak) and, on desktop/web only, mention
         // the Shift override.
         final mode = interaction.arcSymmetric ? 'Arc' : 'Free';
-        final base =
-            'Click to set the curve apex ($mode). Right-click to go back.';
-        if (_isDesktopOrWeb()) {
+        final base = '$tap to set the curve apex ($mode). $cancelBack';
+        if (desktop) {
           return interaction.arcSymmetric
               ? '$base Hold Shift for Free.'
               : '$base Hold Shift for Arc.';
@@ -232,19 +241,19 @@ class _PdfViewerScreenState extends ConsumerState<PdfViewerScreen> {
         return base;
       case ToolMode.circle:
         if (!hasFirst) {
-          return 'Click anywhere to set the circle center.';
+          return '$tap anywhere to set the circle center.';
         }
-        return 'Click to set the radius. Right-click to cancel.';
+        return '$tap to set the radius. $cancelCancel';
       case ToolMode.rectangle:
         if (!hasFirst) {
-          return 'Click anywhere to set the first corner.';
+          return '$tap anywhere to set the first corner.';
         }
-        return 'Click to set the opposite corner. Right-click to cancel.';
+        return '$tap to set the opposite corner. $cancelCancel';
       case ToolMode.calibrate:
         if (!hasFirst) {
-          return 'Click the first point of a known-length feature.';
+          return '$tap the first point of a known-length feature.';
         }
-        return 'Click the second point to set the calibration. Right-click to cancel.';
+        return '$tap the second point to set the calibration. $cancelCancel';
     }
   }
 
@@ -1372,6 +1381,9 @@ class _PageOverlay extends ConsumerWidget {
                   onTapUp: (details) =>
                       onTap(_overlayToPdf(details.localPosition, overlaySize)),
                   onSecondaryTapUp: (_) => onSecondaryTap(),
+                  // Touch equivalent of right-click on mobile (Android/iOS):
+                  // long-press cancels the most recent in-progress action.
+                  onLongPress: onSecondaryTap,
                 ),
               ),
             ),
