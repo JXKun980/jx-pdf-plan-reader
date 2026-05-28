@@ -1,9 +1,35 @@
-- Real time visuallisation of line drawing
-- Real time visuallisation of ARC drawing
-- Right click to cancel a preview and start again
-- Error when hovering over tool item
-- Size floating tip needs when overlap should highlight the last one that's touched by mouse
-- Ability to chain lines and arcs
-- When not drawing, right click cancels tool and moves back to pointer tool
-- Clicking a line/point do not darken screen, it should keep the line highlighted until user clicks empty space or another line, it should have a floating widget showing the actions to perform: delete, or calibrate if not calibrated before
-- Opening a new page, the page always moves from bottom right to top left then center, remove this animation
+- Windows open up a white screen
+
+- Android Error
+
+Launching lib\main.dart on sdk gphone64 x86 64 in debug mode...
+Exception in thread "main" java.io.FileNotFoundException: https://github.com/gradle/gradle-distributions/releases/download/v8.14.0/gradle-8.14.0-all.zip
+        at java.base/sun.net.www.protocol.http.HttpURLConnection.getInputStream0(Unknown Source)
+        at java.base/sun.net.www.protocol.http.HttpURLConnection.getInputStream(Unknown Source)
+        at java.base/sun.net.www.protocol.https.HttpsURLConnectionImpl.getInputStream(Unknown Source)
+        at org.gradle.wrapper.Download.downloadInternal(Download.java:58)
+        at org.gradle.wrapper.Download.download(Download.java:44)
+        at org.gradle.wrapper.Install$1.call(Install.java:61)
+        at org.gradle.wrapper.Install$1.call(Install.java:48)
+        at org.gradle.wrapper.ExclusiveFileAccessManager.access(ExclusiveFileAccessManager.java:65)
+        at org.gradle.wrapper.Install.createDist(Install.java:48)
+        at org.gradle.wrapper.WrapperExecutor.execute(WrapperExecutor.java:128)
+        at org.gradle.wrapper.GradleWrapperMain.main(GradleWrapperMain.java:61)
+Running Gradle task 'assembleDebug'...                           1,522ms
+[!] Gradle threw an error while downloading artifacts from the network.
+Retrying Gradle Build: #1, wait time: 100ms
+Exception in thread "main" java.io.FileNotFoundException: https://github.com/gradle/gradle-distributions/releases/download/v8.14.0/gradle-8.14.0-all.zip
+        at java.base/sun.net.www.protocol.http.HttpURLConnection.getInputStream0(Unknown Source)
+        at java.base/sun.net.www.protocol.http.HttpURLConnection.getInputStream(Unknown Source)
+        at java.base/sun.net.www.protocol.https.HttpsURLConnectionImpl.getInputStream(Unknown Source)
+        at org.gradle.wrapper.Download.downloadInternal(Download.java:58)
+        at org.gradle.wrapper.Download.download(Download.java:44)
+        at org.gradle.wrapper.Install$1.call(Install.java:61)
+        at org.gradle.wrapper.Install$1.call(Install.java:48)
+        at org.gradle.wrapper.ExclusiveFileAccessManager.access(ExclusiveFileAccessManager.java:65)
+        at org.gradle.wrapper.Install.createDist(Install.java:48)
+        at org.gradle.wrapper.WrapperExecutor.execute(WrapperExecutor.java:128)
+        at org.gradle.wrapper.GradleWrapperMain.main(GradleWrapperMain.java:61)
+Running Gradle task 'assembleDebug'...                             733ms
+[!] Gradle threw an error while downloading artifacts from the network.
+Error: Gradle task assembleDebug failed with exit code 1
